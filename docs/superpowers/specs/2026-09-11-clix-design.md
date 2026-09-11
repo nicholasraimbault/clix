@@ -73,6 +73,8 @@ v0 works with no agent. An agent is another client of the same commands, and wil
 
 The agent does not type into your terminal. It asks Clix to run `clix laptop adb` the same way you do. Same user, same log.
 
+If a tool is not granted, the agent may **request** it (`clix request laptop adb`, or a denied exec becomes a request). The laptop shows pending (`clix pending`, and a notification). You approve on that box: `clix allow` (latest request) or `clix deny`. You can tighten with `--once` / `--for` / `--server`. A request with no window is treated as `--once` unless you widen it. Do not approve in the agent chat; the agent can type “yes”. Lid down: the request waits until you open the laptop. The agent cannot `clix allow`.
+
 ## Andrix (later)
 
 A new body, not a new product. Can be home if you have no server. Small work is local. When the phone is the device, use native tools; `adb` stays a laptop hand for other devices.
