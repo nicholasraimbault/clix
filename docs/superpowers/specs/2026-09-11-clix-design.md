@@ -84,9 +84,14 @@ v0 does not wait on Andrix.
 Two Arch machines.
 
 1. Sidecar per box. Pair with a phrase.
-2. On each box, `clix add <tool>` grants that binary (on PATH or a path you give). `clix remove <tool>` revokes. `clix hands` lists grants. Grant and revoke only on that box, as you, not from the agent over the mesh. Optional window: `clix add adb --for 2h`, `clix add adb --until 18:00`, or `clix add adb --once` (one successful run, then gone). After that, denied. With no flag, the grant lasts until you remove it. Recurring hours (weekdays 9–17) are later.
+2. On each box, `clix add <tool>` grants that binary (on PATH or a path you give). `clix remove <tool>` revokes. `clix hands` lists grants. Grant and revoke only on that box, as you, not from the agent over the mesh. `clix add adb` with no extra flags: every paired body, until you `clix remove adb`. All boxes, all the time.
 
-Who may call: on the laptop, `clix add adb --server` (or `clix add adb --allow server`) means only the body named `server` may run `clix laptop adb`. Repeat or pass more names to allow more boxes. With no `--allow` / body flag, any paired body can use the grant. The agent on a body you did not name is denied. Grant still happens on this box, as you. A body cannot add itself.
+Narrow it when you want:
+
+- Who: `clix add adb --server` (or `--allow server`) — only that body. More names if you want more than one. Unnamed bodies are denied.
+- How long: `--for 2h`, `--until 18:00`, `--once` (one successful run, then gone).
+
+Those stack: `clix add adb --server --once --for 2h`. Recurring hours (weekdays 9–17) are later. Grant still happens on this box, as you. A body cannot add itself.
 3. `clix <body> <cmd>` runs that argv on that box only if `cmd` is granted there. Denied otherwise. Each run is a job in the log, visible on that device. No lingering shell.
 4. Pin `~/src` both ways. If both sides wrote, stop and say so. No invented merge.
 5. One log. Tests and `adb` are the same work. `clix log` from any box.
