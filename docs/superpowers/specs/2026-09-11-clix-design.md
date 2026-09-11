@@ -1,6 +1,8 @@
 # Clix
 
-**Value:** Your agents can use tools you offered on a device. They do not get a login on that device, and they cannot do anything you did not add.
+**Value:** Safer, easier access to your devices for you or your agent, so a dev workflow across machines is not a pile of SSH.
+
+You (or the agent) only get tools you added on that box. Not a login. Not a silent session. Not anything you did not add.
 
 **Name:** Clix, because the devices click. Cloud Unix is just the etymology.
 
@@ -118,4 +120,4 @@ Two Arch machines.
 
 ## What we add
 
-The missing object: agent on the always-on box, only the tools you added on the laptop, no login, no silent session. Pin, one log, and wait make that true instead of SSH with extra steps.
+Safer than a laptop login. Easier than nested SSH. Same commands for you and the agent. That is the DX for work that spans machines.
