@@ -9,6 +9,20 @@ pub enum ClixError {
     Io(String),
     #[error("{0}")]
     Json(String),
+    #[error("no such tool: {tool}")]
+    NoSuchTool { tool: String },
+    #[error("{tool} is not added on {body}")]
+    NotAdded { tool: String, body: String },
+    #[error("{from} is not allowed to use {tool} on {body}")]
+    NotAllowed {
+        tool: String,
+        from: String,
+        body: String,
+    },
+    #[error("{tool} grant on {body} has expired")]
+    Expired { tool: String, body: String },
+    #[error("{tool} is not added on {body} at this time")]
+    NotAddedAtTime { tool: String, body: String },
 }
 
 impl From<std::io::Error> for ClixError {
