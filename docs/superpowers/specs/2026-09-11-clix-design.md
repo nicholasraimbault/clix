@@ -1,5 +1,9 @@
 # Clix
 
+This is the accepted system design. Live implementation and proof state belong
+in [`plans/current.md`](../../../plans/current.md). Agent working rules are in
+[`AGENTS.md`](../../../AGENTS.md).
+
 **Value:** Safer, easier access to your devices for you or your agent, so a dev workflow across machines is not a pile of SSH.
 
 You (or the agent) only get tools you added on that box. Not a login. Not a silent session. Not anything you did not add.
@@ -75,7 +79,7 @@ The agent does not type into your terminal. It asks Clix to run `clix laptop adb
 
 If a tool is not granted, the agent may **request** it (`clix request laptop adb`, or a denied exec becomes a request). That shows on the box that has the tool.
 
-**Request UI:** a small prompt on that box (notification + dialog), not a Clix control panel and not a compositor. Who wants what, from which body. Buttons: Allow once, Allow (you pick `--for` / `--until` / which body), Deny. Default button is Allow once.
+**Request UI:** this machine’s native OS notifications. Who wants what, from which body. Actions: Allow once, Allow, Deny. Default is Allow once. Not a Clix-drawn dialog pretending to be the OS.
 
 `clix pending` / `clix allow` / `clix deny` still work in the terminal (headless, or you prefer the shell). Same objects as the GUI. Do not approve in the agent chat; the agent can type “yes”. Lid down: the request waits; the prompt appears when the box is up. The agent cannot `clix allow` and cannot click the dialog.
 
