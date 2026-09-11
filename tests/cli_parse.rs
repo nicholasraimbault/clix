@@ -190,6 +190,7 @@ fn days_and_weekdays_conflict() {
     .unwrap_err();
     match err {
         ClixError::Usage(s) => assert!(s.contains("--days") && s.contains("--weekdays")),
+        other => panic!("expected usage, got {other}"),
     }
 }
 
@@ -205,6 +206,7 @@ fn once_rejects_repeating_schedule() {
         let err = parse_argv(&argv).unwrap_err();
         match err {
             ClixError::Usage(s) => assert!(s.contains("--once"), "{s}"),
+            other => panic!("expected usage, got {other}"),
         }
     }
 }
@@ -217,6 +219,7 @@ fn add_without_tool_is_usage() {
             assert!(!s.is_empty());
             assert!(s.len() < 80, "usage string should be short: {s}");
         }
+        other => panic!("expected usage, got {other}"),
     }
 }
 
@@ -273,6 +276,7 @@ fn remove_without_tool_is_usage() {
     let err = parse_argv(&["clix".into(), "remove".into()]).unwrap_err();
     match err {
         ClixError::Usage(s) => assert!(!s.is_empty()),
+        other => panic!("expected usage, got {other}"),
     }
 }
 
@@ -281,6 +285,7 @@ fn exec_without_cmd_is_usage() {
     let err = parse_argv(&["clix".into(), "laptop".into()]).unwrap_err();
     match err {
         ClixError::Usage(s) => assert!(!s.is_empty()),
+        other => panic!("expected usage, got {other}"),
     }
 }
 
@@ -298,6 +303,7 @@ fn request_is_reserved_not_a_body() {
             assert!(!s.is_empty());
             assert!(s.len() < 80, "usage string should be short: {s}");
         }
+        other => panic!("expected usage, got {other}"),
     }
 }
 
@@ -313,6 +319,7 @@ fn bad_weekday_is_usage() {
     .unwrap_err();
     match err {
         ClixError::Usage(s) => assert!(s.contains("weekday")),
+        other => panic!("expected usage, got {other}"),
     }
 }
 
@@ -328,5 +335,6 @@ fn bad_date_is_usage() {
     .unwrap_err();
     match err {
         ClixError::Usage(s) => assert!(s.contains("date")),
+        other => panic!("expected usage, got {other}"),
     }
 }
