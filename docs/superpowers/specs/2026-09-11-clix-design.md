@@ -119,7 +119,7 @@ Those stack: `clix add adb --server --once --for 2h`. Recurring hours (weekdays 
 - Two ABIs stay two ABIs.
 - Location is honest. Named body, or this machine.
 - Owner can work with no agent. Agent is attributable.
-- No compositor, no new VPN, no guest distro.
+- No compositor, no new VPN, no guest distro. A request dialog is not a compositor.
 - Tailscale is not the product.
 - Hands are added on that box, by you. The agent cannot grant itself tools on another machine.
 
