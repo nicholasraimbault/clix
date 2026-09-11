@@ -1,0 +1,315 @@
+use std::time::{Duration, SystemTime};
+
+use clix::parse_argv;
+use clix::ClixError;
+use clix::Cmd;
+
+#[test]
+fn exec_is_body_then_argv() {
+    let cmd = parse_argv(&[
+        "clix".into(),
+        "laptop".into(),
+        "adb".into(),
+        "devices".into(),
+    ])
+    .unwrap();
+    match cmd {
+        Cmd::Exec { body, argv } => {
+            assert_eq!(body, "laptop");
+            assert_eq!(argv, vec!["adb", "devices"]);
+        }
+        _ => panic!("expected exec"),
+    }
+}
+
+#[test]
+fn add_is_reserved() {
+    let cmd = parse_argv(&["clix".into(), "add".into(), "adb".into()]).unwrap();
+    match cmd {
+        Cmd::Add { tool, once, .. } => {
+            assert_eq!(tool, "adb");
+            assert!(!once);
+        }
+        _ => panic!("expected add"),
+    }
+}
+
+#[test]
+fn add_once_for_allow() {
+    let cmd = parse_argv(&[
+        "clix".into(),
+        "add".into(),
+        "adb".into(),
+        "--once".into(),
+        "--for".into(),
+        "2h".into(),
+        "--allow".into(),
+        "server".into(),
+    ])
+    .unwrap();
+    match cmd {
+        Cmd::Add {
+            tool,
+            once,
+            allow,
+            for_dur,
+            ..
+        } => {
+            assert_eq!(tool, "adb");
+            assert!(once);
+            assert_eq!(allow, vec!["server"]);
+            assert_eq!(for_dur.unwrap().as_secs(), 7200);
+        }
+        _ => panic!("expected add"),
+    }
+}
+
+#[test]
+fn server_fills_the_same_allow_field() {
+    let cmd = parse_argv(&["clix".into(), "add".into(), "adb".into(), "--server".into()]).unwrap();
+    match cmd {
+        Cmd::Add { allow, .. } => assert_eq!(allow, vec!["server"]),
+        _ => panic!("expected add"),
+    }
+}
+
+#[test]
+fn allow_is_repeatable() {
+    let cmd = parse_argv(&[
+        "clix".into(),
+        "add".into(),
+        "adb".into(),
+        "--allow".into(),
+        "server".into(),
+        "--allow".into(),
+        "phone".into(),
+    ])
+    .unwrap();
+    match cmd {
+        Cmd::Add { allow, .. } => assert_eq!(allow, vec!["server", "phone"]),
+        _ => panic!("expected add"),
+    }
+}
+
+#[test]
+fn weekdays_is_a_bool_on_add() {
+    let cmd = parse_argv(&[
+        "clix".into(),
+        "add".into(),
+        "adb".into(),
+        "--weekdays".into(),
+        "--from".into(),
+        "9am".into(),
+        "--to".into(),
+        "5pm".into(),
+    ])
+    .unwrap();
+    match cmd {
+        Cmd::Add {
+            weekdays,
+            days,
+            from,
+            to,
+            ..
+        } => {
+            assert!(weekdays);
+            assert!(days.is_empty());
+            assert_eq!(from.as_deref(), Some("9am"));
+            assert_eq!(to.as_deref(), Some("5pm"));
+        }
+        _ => panic!("expected add"),
+    }
+}
+
+#[test]
+fn days_dates_from_to() {
+    let cmd = parse_argv(&[
+        "clix".into(),
+        "add".into(),
+        "adb".into(),
+        "--days".into(),
+        "mon,wed,fri".into(),
+        "--dates".into(),
+        "1,15".into(),
+        "--from".into(),
+        "9am".into(),
+        "--to".into(),
+        "5pm".into(),
+    ])
+    .unwrap();
+    match cmd {
+        Cmd::Add {
+            days,
+            dates,
+            from,
+            to,
+            weekdays,
+            ..
+        } => {
+            assert_eq!(days, vec!["mon", "wed", "fri"]);
+            assert_eq!(dates, vec![1, 15]);
+            assert_eq!(from.as_deref(), Some("9am"));
+            assert_eq!(to.as_deref(), Some("5pm"));
+            assert!(!weekdays);
+        }
+        _ => panic!("expected add"),
+    }
+}
+
+#[test]
+fn until_is_local_today_or_tomorrow() {
+    let cmd = parse_argv(&[
+        "clix".into(),
+        "add".into(),
+        "adb".into(),
+        "--until".into(),
+        "5pm".into(),
+    ])
+    .unwrap();
+    match cmd {
+        Cmd::Add { until, .. } => {
+            let t = until.expect("until");
+            let now = SystemTime::now();
+            assert!(t > now - Duration::from_secs(1));
+            assert!(t <= now + Duration::from_secs(26 * 3600));
+        }
+        _ => panic!("expected add"),
+    }
+}
+
+#[test]
+fn days_and_weekdays_conflict() {
+    let err = parse_argv(&[
+        "clix".into(),
+        "add".into(),
+        "adb".into(),
+        "--days".into(),
+        "mon".into(),
+        "--weekdays".into(),
+    ])
+    .unwrap_err();
+    match err {
+        ClixError::Usage(s) => assert!(s.contains("--days") && s.contains("--weekdays")),
+    }
+}
+
+#[test]
+fn once_rejects_repeating_schedule() {
+    for extra in [
+        vec!["--days".into(), "mon".into()],
+        vec!["--dates".into(), "1".into()],
+        vec!["--weekdays".into()],
+    ] {
+        let mut argv = vec!["clix".into(), "add".into(), "adb".into(), "--once".into()];
+        argv.extend(extra);
+        let err = parse_argv(&argv).unwrap_err();
+        match err {
+            ClixError::Usage(s) => assert!(s.contains("--once"), "{s}"),
+        }
+    }
+}
+
+#[test]
+fn add_without_tool_is_usage() {
+    let err = parse_argv(&["clix".into(), "add".into()]).unwrap_err();
+    match err {
+        ClixError::Usage(s) => {
+            assert!(!s.is_empty());
+            assert!(s.len() < 80, "usage string should be short: {s}");
+        }
+    }
+}
+
+#[test]
+fn reserved_commands() {
+    assert!(matches!(
+        parse_argv(&["clix".into(), "hands".into()]).unwrap(),
+        Cmd::Hands
+    ));
+    assert!(matches!(
+        parse_argv(&["clix".into(), "log".into()]).unwrap(),
+        Cmd::Log
+    ));
+    assert!(matches!(
+        parse_argv(&["clix".into(), "pending".into()]).unwrap(),
+        Cmd::Pending
+    ));
+    assert!(matches!(
+        parse_argv(&["clix".into(), "allow".into()]).unwrap(),
+        Cmd::Allow
+    ));
+    assert!(matches!(
+        parse_argv(&["clix".into(), "deny".into()]).unwrap(),
+        Cmd::Deny
+    ));
+    assert!(matches!(
+        parse_argv(&["clix".into(), "daemon".into()]).unwrap(),
+        Cmd::Daemon
+    ));
+    assert!(matches!(
+        parse_argv(&["clix".into(), "install".into()]).unwrap(),
+        Cmd::Install
+    ));
+    assert!(matches!(
+        parse_argv(&["clix".into(), "status".into()]).unwrap(),
+        Cmd::Status
+    ));
+    match parse_argv(&["clix".into(), "pair".into()]).unwrap() {
+        Cmd::Pair { phrase } => assert_eq!(phrase, None),
+        _ => panic!("expected pair"),
+    }
+    match parse_argv(&["clix".into(), "pair".into(), "oak-42".into()]).unwrap() {
+        Cmd::Pair { phrase } => assert_eq!(phrase.as_deref(), Some("oak-42")),
+        _ => panic!("expected pair"),
+    }
+    match parse_argv(&["clix".into(), "remove".into(), "adb".into()]).unwrap() {
+        Cmd::Remove { tool } => assert_eq!(tool, "adb"),
+        _ => panic!("expected remove"),
+    }
+}
+
+#[test]
+fn remove_without_tool_is_usage() {
+    let err = parse_argv(&["clix".into(), "remove".into()]).unwrap_err();
+    match err {
+        ClixError::Usage(s) => assert!(!s.is_empty()),
+    }
+}
+
+#[test]
+fn exec_without_cmd_is_usage() {
+    let err = parse_argv(&["clix".into(), "laptop".into()]).unwrap_err();
+    match err {
+        ClixError::Usage(s) => assert!(!s.is_empty()),
+    }
+}
+
+#[test]
+fn bad_weekday_is_usage() {
+    let err = parse_argv(&[
+        "clix".into(),
+        "add".into(),
+        "adb".into(),
+        "--days".into(),
+        "monday".into(),
+    ])
+    .unwrap_err();
+    match err {
+        ClixError::Usage(s) => assert!(s.contains("weekday")),
+    }
+}
+
+#[test]
+fn bad_date_is_usage() {
+    let err = parse_argv(&[
+        "clix".into(),
+        "add".into(),
+        "adb".into(),
+        "--dates".into(),
+        "32".into(),
+    ])
+    .unwrap_err();
+    match err {
+        ClixError::Usage(s) => assert!(s.contains("date")),
+    }
+}

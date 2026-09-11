@@ -1,0 +1,291 @@
+use std::time::{Duration, SystemTime};
+
+use chrono::{Local, NaiveDate, NaiveTime, TimeZone};
+use clap::{ColorChoice, Parser, Subcommand};
+
+use crate::error::{ClixError, Result};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Cmd {
+    Add {
+        tool: String,
+        allow: Vec<String>,
+        once: bool,
+        for_dur: Option<Duration>,
+        until: Option<SystemTime>,
+        days: Vec<String>,
+        dates: Vec<u8>,
+        from: Option<String>,
+        to: Option<String>,
+        weekdays: bool,
+    },
+    Exec {
+        body: String,
+        argv: Vec<String>,
+    },
+    Pair {
+        phrase: Option<String>,
+    },
+    Hands,
+    Remove {
+        tool: String,
+    },
+    Log,
+    Pending,
+    Allow,
+    Deny,
+    Daemon,
+    Install,
+    Status,
+}
+
+#[derive(Parser, Debug)]
+#[command(name = "clix", disable_help_subcommand = true, color = ColorChoice::Never)]
+#[command(allow_external_subcommands = true)]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    Add {
+        tool: Option<String>,
+        #[arg(long = "allow", value_name = "BODY")]
+        allow: Vec<String>,
+        #[arg(long = "server")]
+        server: bool,
+        #[arg(long = "once")]
+        once: bool,
+        #[arg(long = "for", value_name = "DUR")]
+        for_dur: Option<String>,
+        #[arg(long = "until", value_name = "TIME")]
+        until: Option<String>,
+        #[arg(long = "days", value_name = "DAYS", value_delimiter = ',')]
+        days: Vec<String>,
+        #[arg(long = "dates", value_name = "DATES", value_delimiter = ',')]
+        dates: Vec<String>,
+        #[arg(long = "from", value_name = "TIME")]
+        from: Option<String>,
+        #[arg(long = "to", value_name = "TIME")]
+        to: Option<String>,
+        #[arg(long = "weekdays")]
+        weekdays: bool,
+    },
+    Pair {
+        phrase: Option<String>,
+    },
+    Hands,
+    Remove {
+        tool: Option<String>,
+    },
+    Log,
+    Pending,
+    Allow,
+    Deny,
+    Daemon,
+    Install,
+    Status,
+    #[command(external_subcommand)]
+    External(Vec<String>),
+}
+
+pub fn parse_argv(argv: &[String]) -> Result<Cmd> {
+    let cli = Cli::try_parse_from(argv).map_err(|e| ClixError::Usage(e.to_string()))?;
+    match cli.command {
+        None => Err(ClixError::Usage("usage: clix <command>".into())),
+        Some(Commands::Add {
+            tool,
+            mut allow,
+            server,
+            once,
+            for_dur,
+            until,
+            days,
+            dates,
+            from,
+            to,
+            weekdays,
+        }) => {
+            let tool = tool.ok_or_else(|| ClixError::Usage("usage: clix add <tool>".into()))?;
+            if server {
+                allow.push("server".into());
+            }
+            if once && (!days.is_empty() || !dates.is_empty() || weekdays) {
+                return Err(ClixError::Usage(
+                    "use --once or a schedule, not both".into(),
+                ));
+            }
+            if weekdays && !days.is_empty() {
+                return Err(ClixError::Usage(
+                    "use --days or --weekdays, not both".into(),
+                ));
+            }
+            let days = validate_days(days)?;
+            let dates = parse_dates(dates)?;
+            if let Some(ref t) = from {
+                validate_ampm(t)?;
+            }
+            if let Some(ref t) = to {
+                validate_ampm(t)?;
+            }
+            let for_dur = for_dur.map(|s| parse_duration(&s)).transpose()?;
+            let until = until.map(|s| parse_until(&s)).transpose()?;
+            Ok(Cmd::Add {
+                tool,
+                allow,
+                once,
+                for_dur,
+                until,
+                days,
+                dates,
+                from,
+                to,
+                weekdays,
+            })
+        }
+        Some(Commands::Pair { phrase }) => Ok(Cmd::Pair { phrase }),
+        Some(Commands::Hands) => Ok(Cmd::Hands),
+        Some(Commands::Remove { tool }) => {
+            let tool = tool.ok_or_else(|| ClixError::Usage("usage: clix remove <tool>".into()))?;
+            Ok(Cmd::Remove { tool })
+        }
+        Some(Commands::Log) => Ok(Cmd::Log),
+        Some(Commands::Pending) => Ok(Cmd::Pending),
+        Some(Commands::Allow) => Ok(Cmd::Allow),
+        Some(Commands::Deny) => Ok(Cmd::Deny),
+        Some(Commands::Daemon) => Ok(Cmd::Daemon),
+        Some(Commands::Install) => Ok(Cmd::Install),
+        Some(Commands::Status) => Ok(Cmd::Status),
+        Some(Commands::External(parts)) => {
+            if parts.len() < 2 {
+                return Err(ClixError::Usage("usage: clix <body> <cmd>…".into()));
+            }
+            let body = parts[0].clone();
+            let argv = parts[1..].to_vec();
+            Ok(Cmd::Exec { body, argv })
+        }
+    }
+}
+
+fn validate_days(days: Vec<String>) -> Result<Vec<String>> {
+    const NAMES: &[&str] = &["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+    let mut out = Vec::with_capacity(days.len());
+    for d in days {
+        let lower = d.trim().to_ascii_lowercase();
+        if !NAMES.contains(&lower.as_str()) {
+            return Err(ClixError::Usage(format!(
+                "unknown weekday '{d}' (use mon..sun)"
+            )));
+        }
+        out.push(lower);
+    }
+    Ok(out)
+}
+
+fn parse_dates(dates: Vec<String>) -> Result<Vec<u8>> {
+    let mut out = Vec::with_capacity(dates.len());
+    for d in dates {
+        let raw = d.trim();
+        let n: u8 = raw
+            .parse()
+            .map_err(|_| ClixError::Usage(format!("bad date '{d}' (use 1–31)")))?;
+        if !(1..=31).contains(&n) {
+            return Err(ClixError::Usage(format!("bad date '{d}' (use 1–31)")));
+        }
+        out.push(n);
+    }
+    Ok(out)
+}
+
+fn validate_ampm(s: &str) -> Result<()> {
+    parse_ampm(s).map(|_| ())
+}
+
+/// Minutes since midnight from `9am` / `5pm`. Hours only; no 24-hour clock.
+fn parse_ampm(s: &str) -> Result<u32> {
+    let s = s.trim().to_ascii_lowercase();
+    let (digits, pm) = if let Some(rest) = s.strip_suffix("pm") {
+        (rest, true)
+    } else if let Some(rest) = s.strip_suffix("am") {
+        (rest, false)
+    } else {
+        return Err(ClixError::Usage(format!(
+            "bad time '{s}' (use am/pm, e.g. 5pm)"
+        )));
+    };
+    let hour: u32 = digits
+        .parse()
+        .map_err(|_| ClixError::Usage(format!("bad time '{s}' (use am/pm, e.g. 5pm)")))?;
+    if !(1..=12).contains(&hour) {
+        return Err(ClixError::Usage(format!(
+            "bad time '{s}' (use am/pm, e.g. 5pm)"
+        )));
+    }
+    let hour24 = match (hour, pm) {
+        (12, false) => 0,
+        (12, true) => 12,
+        (h, false) => h,
+        (h, true) => h + 12,
+    };
+    Ok(hour24 * 60)
+}
+
+fn parse_duration(s: &str) -> Result<Duration> {
+    let s = s.trim().to_ascii_lowercase();
+    if s.len() < 2 {
+        return Err(ClixError::Usage("bad duration (e.g. 2h, 30m)".into()));
+    }
+    let (num, unit) = s.split_at(s.len() - 1);
+    let n: u64 = num
+        .parse()
+        .map_err(|_| ClixError::Usage(format!("bad duration '{s}' (e.g. 2h, 30m)")))?;
+    let secs = match unit {
+        "s" => n,
+        "m" => n
+            .checked_mul(60)
+            .ok_or_else(|| ClixError::Usage("duration too large".into()))?,
+        "h" => n
+            .checked_mul(3600)
+            .ok_or_else(|| ClixError::Usage("duration too large".into()))?,
+        "d" => n
+            .checked_mul(86400)
+            .ok_or_else(|| ClixError::Usage("duration too large".into()))?,
+        _ => {
+            return Err(ClixError::Usage(format!(
+                "bad duration '{s}' (e.g. 2h, 30m)"
+            )))
+        }
+    };
+    Ok(Duration::from_secs(secs))
+}
+
+/// `--until 5pm` → local time today, or tomorrow if that time is already past.
+fn parse_until(s: &str) -> Result<SystemTime> {
+    let mins = parse_ampm(s)?;
+    let hour = mins / 60;
+    let minute = mins % 60;
+    let naive = NaiveTime::from_hms_opt(hour, minute, 0)
+        .ok_or_else(|| ClixError::Usage(format!("bad time '{s}' (use am/pm, e.g. 5pm)")))?;
+    let now = Local::now();
+    let resolve = |date: NaiveDate| {
+        let dt = date.and_time(naive);
+        match Local.from_local_datetime(&dt) {
+            chrono::LocalResult::Single(t) | chrono::LocalResult::Ambiguous(t, _) => Ok(t),
+            chrono::LocalResult::None => Err(ClixError::Usage(format!(
+                "could not resolve local time '{s}'"
+            ))),
+        }
+    };
+    let today = resolve(now.date_naive())?;
+    let target = if today > now {
+        today
+    } else {
+        let tomorrow = now
+            .date_naive()
+            .succ_opt()
+            .ok_or_else(|| ClixError::Usage("date overflow".into()))?;
+        resolve(tomorrow)?
+    };
+    Ok(SystemTime::from(target))
+}
