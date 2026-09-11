@@ -1,6 +1,6 @@
 # Clix
 
-**Value:** Your agents can use your devices without a full SSH login.
+**Value:** Your agents can use tools you offered on a device. They do not get a login on that device, and they cannot do anything you did not add.
 
 **Name:** Clix, because the devices click. Cloud Unix is just the etymology.
 
@@ -22,7 +22,7 @@ Everything else drops a piece:
 
 ## Product
 
-One owner across your machines. A small sidecar on each box, already you, from a pair. The agent (or you) asks that sidecar to run a command. Not a login. No `sshd`. Later you can allow `adb` and not a shell. SSH cannot do that cut.
+One owner across your machines. A small sidecar on each box, already you, from a pair. On a machine, you **add** the tools that box may run for this user (`clix add adb` on the laptop). The agent asks that sidecar to run a granted tool. Not a login. No `sshd`. No leftover session. The agent cannot add hands on a machine it is not sitting at.
 
 | Body | Role |
 |---|---|
@@ -30,7 +30,7 @@ One owner across your machines. A small sidecar on each box, already you, from a
 | Laptop | `adb`, emulator, browser, display. Sleeps. A hand. Home only if it is the only box awake (then lid down pauses). |
 | Phone (later, Andrix) | Always carried. Real Unix (Bionic). Small edit/commit. Eligible home. |
 
-**Hand:** a body that runs a command you named. `clix laptop adb` is real `adb` on the laptop. If that box is asleep, wait or say so. Do not pretend the server is the laptop.
+**Hand:** a tool you added on a body. `clix laptop adb` is real `adb` on the laptop, only if you ran `clix add adb` there. Anything not added is denied. If that box is asleep, wait or say so. Do not pretend the server is the laptop. Each run is a visible job (who, what, running or done). No silent user session.
 
 **Files:** pin `~/src` on the paired boxes. Not NFS. Not full-home Syncthing.
 
@@ -41,7 +41,7 @@ One owner across your machines. A small sidecar on each box, already you, from a
 Stay in your normal shell. Do not enter a Clix prompt.
 
 - This machine: run the command as usual.
-- Other machine: `clix <body> <cmd>`. You always see which box. No silent routing.
+- Other machine: `clix <body> <cmd>`. Only works if that cmd was added on that body. You always see which box. No silent routing.
 
 Same command for you, for scripts, and for the agent.
 
@@ -82,18 +82,19 @@ v0 does not wait on Andrix.
 Two Arch machines.
 
 1. Sidecar per box. Pair with a phrase.
-2. `clix <body> <cmd>` runs that command on that box. v0 is a generic exec (as powerful as one remote command, but not a login session). Allowing only `adb` (not a shell) is later. Do not claim v0 is already that cut.
-3. Pin `~/src` both ways. If both sides wrote, stop and say so. No invented merge.
-4. One log. Tests and `adb` are the same work. `clix log` from any box.
-5. Lid down: agent on the server lives; `adb` waits.
-6. One package, pair, defaults.
+2. On each box, `clix add <tool>` grants that binary (on PATH or a path you give). `clix remove <tool>` revokes. `clix hands` lists grants. Grant and revoke only on that box, as you, not from the agent over the mesh.
+3. `clix <body> <cmd>` runs that argv on that box only if `cmd` is granted there. Denied otherwise. Each run is a job in the log, visible on that device. No lingering shell.
+4. Pin `~/src` both ways. If both sides wrote, stop and say so. No invented merge.
+5. One log. Tests and `adb` are the same work. `clix log` from any box.
+6. Lid down: agent on the server lives; `adb` waits.
+7. One package, pair, defaults.
 
-**Success:** the server agent uses the laptop phone without logging into the laptop.
+**Success:** you `clix add adb` on the laptop. The server agent runs `clix laptop adb` and cannot run anything else on the laptop. No login. You can see the job.
 
 ## Later
 
 - Phone sidecar (Andrix)
-- Tighter grants, revoke, lost device
+- Richer grants (args, time limits), lost device
 - Clipboard / file handoff
 - Conflict policy that does not invent merges
 - QR on the pairing card
@@ -116,4 +117,4 @@ Two Arch machines.
 
 ## What we add
 
-The missing object: agent on the always-on box, `adb` on the laptop, **not a laptop login**. Pin, one log, and wait make that true instead of a wrapper around SSH.
+The missing object: agent on the always-on box, only the tools you added on the laptop, no login, no silent session. Pin, one log, and wait make that true instead of SSH with extra steps.
