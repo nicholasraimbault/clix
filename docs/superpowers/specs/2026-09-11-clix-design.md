@@ -1,143 +1,119 @@
 # Clix
 
-**One-liner:** The cloud is the Linux user. Devices are hands and cache. No vendor VM.
+**Value:** Your agents can use your devices without a full SSH login.
 
-**Name:** Clix, because it clicks. Cloud Unix is secondary.
+**Name:** Clix, because the devices click. Cloud Unix is just the etymology.
+
+The cloud is the Linux user. Devices are hands and cache. No vendor VM.
 
 ## Problem
 
-Agents want to live on a machine that stays up (the server). Tools often live on another (the laptop: `adb`, the plugged-in phone). A human SSHes and remembers which box has what. Lid down kills the laptop agent. Nested SSH (server agent logs into the laptop) is the only way to get both, and it is the wrong object: a **login** so an agent can touch a USB device.
+You want the agent on the server (it stays up). You want `adb` on the laptop (the phone is plugged in there).
 
-Current fixes each drop a piece:
+Today the way to get both is nested SSH: the server agent logs into the laptop. That is a full login so it can touch one device. That is sketchy.
 
-- Agent on the laptop plus stay-awake hacks (`caffeinate`, `pmset`, plastic lid-wedges).
+Everything else drops a piece:
+
+- Agent on the laptop: lid down kills it, or you disable sleep.
 - Agent on a server or vendor VM: no USB phone.
-- Remote Control: the phone is a window into the laptop; laptop must stay up.
+- Remote Control: window into the laptop; laptop must stay up.
 - Wireless ADB / USB-over-IP: extra layer; the USB host still has to be up.
-- MCP-SSH / nested Tailscale SSH: the trombone.
-- Human runs `adb` and stitches two logs.
-
-Nobody ships: always-on agent, real `adb` on the laptop, no login, one user, one log, wait if the lid is down.
+- You run `adb` yourself.
 
 ## Product
 
-One **owner** identity across bodies.
+One owner across your machines. A small sidecar on each box, already you, from a pair. The agent (or you) asks that sidecar to run a command. Not a login. No `sshd`. Later you can allow `adb` and not a shell. SSH cannot do that cut.
 
 | Body | Role |
 |---|---|
-| Server | Always on. Archive. Heavy build/test. Eligible home. |
-| Laptop | Interactive. `adb`, emulator, browser, display. Sleeps. A hand. Home only when it is the only awake body (then lid down pauses). |
-| Phone (later, Andrix) | Always carried. Real Unix body (Bionic). Small edit/commit. Eligible home. |
+| Server | Always on. Builds, tests, the agent. Eligible home. |
+| Laptop | `adb`, emulator, browser, display. Sleeps. A hand. Home only if it is the only box awake (then lid down pauses). |
+| Phone (later, Andrix) | Always carried. Real Unix (Bionic). Small edit/commit. Eligible home. |
 
-**User** = one principal, one log. Not a process glued to a host.
+**Hand:** a body that runs a command you named. `clix laptop adb` is real `adb` on the laptop. If that box is asleep, wait or say so. Do not pretend the server is the laptop.
 
-**Hands** = a body that can run a named command. The agent (or you) calls `clix laptop adb`. That is real `adb` on the laptop. If that body is asleep, say so or wait. Do not pretend the server is the laptop.
+**Files:** pin `~/src` on the paired boxes. Not NFS. Not full-home Syncthing.
 
-**Data** = one object catalog. Partial replica (working set / pin, default `~/src`). Not NFS, not full-home Syncthing, not two clones you manage by hand.
+**Mesh:** Tailscale or Headscale. Plumbing only.
 
-**Mesh** = Tailscale or Headscale. Plumbing. Not the product. Not Tailcat (netcat-over-magicsock, no tailnet).
+## How you use it
 
-## Why this is not SSH
+Stay in your normal shell. Do not enter a Clix prompt.
 
-SSH starts a **login** on the laptop. New session, that user, `sshd`, keys. The agent is now a logged-in user on your machine.
+- This machine: run the command as usual.
+- Other machine: `clix <body> <cmd>`. You always see which box. No silent routing.
 
-Clix does not log in. Each box runs a sidecar as **you**, from a pair. The agent asks that sidecar: run `adb` with these args. A call, not a login. Later: allow `adb` and not a shell. SSH cannot make that cut.
-
-The command `clix laptop adb` looks like `ssh laptop adb`. If that wrapper is all we ship, it *is* glorified SSH. The product is the rest: pair, pin, one log, wait, hand not login.
-
-## How it feels
-
-You stay in the real shell on the box in your hands (bash, fish, whatever is already there). You do not enter a special Clix prompt. That would be SSH again.
-
-- Local command: just run it (`adb` on the laptop, `cargo test` on the server).
-- Other body: `clix <body> <cmd>`. Devs see where work runs. No silent placement.
-- Same spelling for scripts and for the agent.
-
-Jobs bar: opening the laptop is being at the computer. Unlocking the phone (later) is being at the computer. No second world.
-
-## Placement (one rule)
-
-The shell you type into is **this** machine. Named commands go to a named body. No “best body” scheduler. No unique-hand inference.
-
-If two phones both have `adb`, you name which. If the hand is asleep, wait or say “laptop is down.”
+Same command for you, for scripts, and for the agent.
 
 ## Pairing
 
-Clix identity is not a Tailscale account. Mesh only carries packets.
+Clix identity is not your Tailscale account.
 
-v0: short phrase. Laptop shows `mango-river-4`. Server: `clix pair mango-river-4`. Defaults on. `~/src` pins.
+v0: a short phrase. Type it on the second box. Defaults on. `~/src` pins.
 
-Later (Andrix): same pair on one card, QR plus phrase. No mode switch. Phone scans; headless box still types.
+Later on Andrix: QR and phrase on the same card. Phone scans. Headless box still types.
 
-Weekend wiki = failed.
+If setup is a weekend wiki, it failed.
 
-## Home and sleep
+## Sleep
 
-You never pick a home in daily use. Among awake bodies, one quietly hosts the durable work (log, queued hands). Server if it is up; phone later if that is the always-carried box.
+You do not pick a home every day. The durable log and queued work sit on a box that is up (the server, or later the phone).
 
-- Lid down: work that can run elsewhere keeps running. `adb` waits.
-- Every body asleep: the thread pauses. No ghost VM. Apple still has iCloud; we do not.
-- Laptop only: no always-on body. Lid down pauses. Honest, not a bug.
+- Lid down: server work keeps going. `adb` waits.
+- Everything asleep: pause. We do not fake a cloud VM.
+- Laptop only: lid down pauses. Honest.
 
-Picking up another body does not migrate in-flight processes. The **user** (log, files, next command) is there. Hands stay on the body that accepted them. Two ABIs stay two ABIs: a glibc `cargo test` does not become a Bionic process.
+Work does not teleport. `adb` stays on the laptop. glibc tests stay glibc. Andrix later is Bionic, not a costume.
 
 ## Agent
 
-v0 is human-usable. An agent is another client of the same verbs, and will be the primary user later.
+v0 works with no agent. An agent is another client of the same commands, and will be the main user later.
 
-The agent does not type into your shell. It asks Clix to run the same `clix laptop adb` the shell already does. Same user, same log, attributable.
-
-If a person can do it, an agent can do it. Do not invent a second API.
+The agent does not type into your terminal. It asks Clix to run `clix laptop adb` the same way you do. Same user, same log.
 
 ## Andrix (later)
 
-Andrix is a new body, not a new architecture. GrapheneOS-derived Android, one native Bionic Unix, owner UID, CE home, unlock → terminal → edit → compile → leave → return.
-
-- Can **be** home for laptop+phone people (no server).
-- Small work is local Unix. Heavy work still names the strong box.
-- When the phone *is* the device, native tools; `adb` remains a laptop hand for other devices.
-- Never a glibc process in a Bionic costume.
+A new body, not a new product. Can be home if you have no server. Small work is local. When the phone is the device, use native tools; `adb` stays a laptop hand for other devices.
 
 v0 does not wait on Andrix.
 
 ## v0
 
-Two Arch machines (laptop + a box playing home).
+Two Arch machines.
 
-1. Sidecar per box, owner pair (phrase).
-2. `clix <body> <cmd>` runs that argv on that body. Native shells stay native. v0 is a generic exec (same power as one remote command). Scoped grants (`adb` only, not a shell) are later; do not advertise v0 as that cut.
-3. Pin sync for `~/src` only. Both ways. If both sides wrote, stop and say so. Do not invent a merge.
-4. One log: tests on the server and `adb` on the laptop are the same work. `clix log` shows it from any body.
-5. Lid down: thread lives on the awake box; `adb` waits.
+1. Sidecar per box. Pair with a phrase.
+2. `clix <body> <cmd>` runs that command on that box. v0 is a generic exec (as powerful as one remote command, but not a login session). Allowing only `adb` (not a shell) is later. Do not claim v0 is already that cut.
+3. Pin `~/src` both ways. If both sides wrote, stop and say so. No invented merge.
+4. One log. Tests and `adb` are the same work. `clix log` from any box.
+5. Lid down: agent on the server lives; `adb` waits.
 6. One package, pair, defaults.
 
-**Success:** during Android-style work, the human stops being the router. The server agent uses the laptop phone without a login. Lid down does not kill the agent.
+**Success:** the server agent uses the laptop phone without logging into the laptop.
 
 ## Later
 
-- Phone sidecar (Andrix).
-- Richer grants, revoke, lost-device.
-- Clipboard / file handoff.
-- Conflict policy that does not invent merges.
-- QR on the pairing card.
+- Phone sidecar (Andrix)
+- Tighter grants, revoke, lost device
+- Clipboard / file handoff
+- Conflict policy that does not invent merges
+- QR on the pairing card
 
 ## Constraints
 
-- Two ABIs stay two ABIs. No merge Bionic/glibc.
-- Location stays honest. Named body, or it is this machine.
-- Agent is attributable and scoped. Owner can work with no agent.
-- Do not build a compositor, a new VPN, or a guest distro.
-- Do not make Tailscale the product.
-- A hand is a hand. v0 exec is still “run this command as me” on that body (no login session, no sshd). That is already better than a laptop login. It is not yet a tight allowlist. Do not call v0 “the agent can only use adb.”
+- Two ABIs stay two ABIs.
+- Location is honest. Named body, or this machine.
+- Owner can work with no agent. Agent is attributable.
+- No compositor, no new VPN, no guest distro.
+- Tailscale is not the product.
 
 ## What it is not
 
-- Linux-on-a-phone, Termux, AVF Debian VM, DroidDesk
-- Apple Continuity / iCloud (feeling similar, tenant different)
-- Nextcloud, Olares, “personal cloud OS”
+- Termux, AVF Debian VM, Linux-on-a-phone
+- Apple Continuity (similar feeling, their cloud)
+- Nextcloud / Olares
 - SSH + tmux + Syncthing with a new name
-- Andrix the ROM (Andrix = later phone body; Clix starts on Arch)
+- Andrix the ROM (that is a later body; Clix starts on Arch)
 
-## New value
+## What we add
 
-Always-on brain, desk hand, no login, one user, one log, wait if asleep. Every current solution throws one of those away. The command looks like SSH. The object is not a login.
+The missing object: agent on the always-on box, `adb` on the laptop, **not a laptop login**. Pin, one log, and wait make that true instead of a wrapper around SSH.
