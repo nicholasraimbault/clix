@@ -94,7 +94,7 @@ Two Arch machines.
 
 Narrow it when you want:
 
-- Who: `clix add adb --server` (or `--allow server`) — only that body. More names if you want more than one. Unnamed bodies are denied.
+- Who: `--allow <body>` (repeatable). `clix add adb --allow server`. `--server` is the same field with body name `server`; error if no paired body has that name. Unnamed bodies are denied.
 - How long: `--for 2h`, `--until 5pm`, `--once` (one successful run, then gone).
 - Repeating schedule, this box’s clock. Any days of the week, any dates of the month, optional hours. Today is allowed if it matches **either** the weekday list or the month-date list (you named the days that are allowed). No `--from`/`--to` means all day.
 
@@ -130,9 +130,37 @@ clix add adb --weekdays --from 9am --to 5pm
 - Two ABIs stay two ABIs.
 - Location is honest. Named body, or this machine.
 - Owner can work with no agent. Agent is attributable.
-- No compositor, no new VPN, no guest distro. A request dialog is not a compositor.
+- No compositor, no new VPN, no guest distro. Native OS notifications are the request UI. A custom Clix window is not a substitute and not required.
 - Tailscale is not the product.
 - Hands are added on that box, by you. The agent cannot grant itself tools on another machine.
+
+## Integrity (v0 is not done if any of this is faked)
+
+These are the product. An implementation that matches the CLI and cheats the object is not Clix.
+
+**Fail closed.** No grant ⇒ `clix <body> <cmd>` is denied. An empty grant list is not “allow everything.” A missing daemon is not “run it locally anyway.”
+
+**Not SSH.** Mesh exec is not `ssh`, not `ssh -o Restricted`, not `ForceCommand`. If `sshd` is how a tool runs, it failed.
+
+**Not a shell.** Exec is the granted binary (`execve`). Not `/bin/sh -c`, not `bash -c`, not `cmd.exe /c`. `argv[0]` must be that tool. `--once` is removed only after exit 0.
+
+**One grant object.** Who is `allow_from` (CLI `--allow <body>`). `--server` is `--allow server` on that same field, and it errors if no paired body is named `server`. Time is `once` / `until` / `Schedule`. `--weekdays` only writes `Schedule.days` to Mon–Fri. A second calendar or a second allow-list is cheating.
+
+**Pair is identity.** Phrase completes a PAKE and stores owner keys. “Both ends have the same string” over the wire is not pairing. Tailscale login is not pairing.
+
+**Mesh is not owner.** The tailnet listener accepts `exec` and `request` only, and only from a paired key. `add`, `remove`, `allow`, `deny`, `pair` on that listener are denied in production and in tests. A `from` field in a mesh message cannot become the owner.
+
+**Owner socket is you.** Unix socket mode 0600, peer uid must be this user. That is the only path that may change grants.
+
+**Wait is wait.** Unreachable body ⇒ job stays `waiting`, user-facing text is `laptop is asleep, waiting…`, and it runs when that sidecar is back unless the grant has expired. One retry then `connection refused` is not wait. Raw I/O errors do not reach the user.
+
+**Pin is honest.** Same relative path, different hashes, both changed since last sync ⇒ error that names the path and says it will not merge. Returning success in that case is cheating. Calling Syncthing or NFS is cheating.
+
+**Visible.** A remote run is a job on both boxes. A request is a pending row plus a real OS notification (or `clix pending` if there is no display). A no-op `notify()` is cheating. Tray, when a display exists, reflects running/pending from the same store. Tests may inject a hook; production must call the OS.
+
+**Done means two machines.** Localhost two-daemon tests are required and not a substitute for the two-Arch success: pair, `clix add adb` on the laptop, `clix laptop adb` from the server, `clix laptop bash` denied, lid down waits.
+
+Marking a task complete with a stub, `todo!()`, `#[ignore]`, or “works if you pretend” is not complete.
 
 ## What it is not
 
