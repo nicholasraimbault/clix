@@ -82,7 +82,7 @@ v0 does not wait on Andrix.
 Two Arch machines.
 
 1. Sidecar per box. Pair with a phrase.
-2. On each box, `clix add <tool>` grants that binary (on PATH or a path you give). `clix remove <tool>` revokes. `clix hands` lists grants. Grant and revoke only on that box, as you, not from the agent over the mesh.
+2. On each box, `clix add <tool>` grants that binary (on PATH or a path you give). `clix remove <tool>` revokes. `clix hands` lists grants. Grant and revoke only on that box, as you, not from the agent over the mesh. Optional window: `clix add adb --for 2h` or `clix add adb --until 18:00`. After that, denied. Until you pass a window, the grant lasts until you remove it. Recurring hours (weekdays 9–17) are later.
 3. `clix <body> <cmd>` runs that argv on that box only if `cmd` is granted there. Denied otherwise. Each run is a job in the log, visible on that device. No lingering shell.
 4. Pin `~/src` both ways. If both sides wrote, stop and say so. No invented merge.
 5. One log. Tests and `adb` are the same work. `clix log` from any box.
@@ -94,7 +94,7 @@ Two Arch machines.
 ## Later
 
 - Phone sidecar (Andrix)
-- Richer grants (args, time limits), lost device
+- Recurring grant windows, arg limits, lost device
 - Clipboard / file handoff
 - Conflict policy that does not invent merges
 - QR on the pairing card
@@ -106,6 +106,7 @@ Two Arch machines.
 - Owner can work with no agent. Agent is attributable.
 - No compositor, no new VPN, no guest distro.
 - Tailscale is not the product.
+- Hands are added on that box, by you. The agent cannot grant itself tools on another machine.
 
 ## What it is not
 
