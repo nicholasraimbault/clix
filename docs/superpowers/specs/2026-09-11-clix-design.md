@@ -103,7 +103,10 @@ clix add adb --days mon,wed,fri
 clix add adb --days sat,sun --from 10am --to 2pm
 clix add adb --dates 1,15
 clix add adb --days fri --dates 1 --from 9am --to 5pm
+clix add adb --weekdays --from 9am --to 5pm
 ```
+
+`--weekdays` sets `days` to Monday–Friday on the same `Schedule`. Same check, same `--from` / `--to` / `--dates` / `--allow`. Not a second scheduler. Do not pass `--days` and `--weekdays` together.
 
 `--once` does not stack with a repeating schedule. `--server` / `--allow` stacks with any of them. Grant still happens on this box, as you. A body cannot add itself.
 3. `clix <body> <cmd>` runs that argv on that box only if `cmd` is granted there. Denied otherwise. Each run is a job in the log, visible on that device. No lingering shell.
