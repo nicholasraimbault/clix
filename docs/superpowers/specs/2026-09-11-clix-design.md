@@ -96,9 +96,18 @@ Narrow it when you want:
 
 - Who: `clix add adb --server` (or `--allow server`) — only that body. More names if you want more than one. Unnamed bodies are denied.
 - How long: `--for 2h`, `--until 5pm`, `--once` (one successful run, then gone).
-- Repeating: `--weekdays 9am-5pm` — Monday–Friday, those hours, on this box’s clock. Outside that window, denied.
+- Repeating schedule, this box’s clock. Any days of the week, any dates of the month, optional hours. Today is allowed if it matches **either** the weekday list or the month-date list (you named the days that are allowed). No `--from`/`--to` means all day.
 
-`--once` does not stack with `--weekdays` (one run vs a weekly door). `--server` stacks with any of them. Example: `clix add adb --server --weekdays 9am-5pm`. Grant still happens on this box, as you. A body cannot add itself.
+```
+clix add adb --days mon,wed,fri
+clix add adb --days sat,sun --from 10am --to 2pm
+clix add adb --dates 1,15
+clix add adb --days fri --dates 1 --from 9am --to 5pm
+```
+
+`--weekdays 9am-5pm` is sugar for `--days mon,tue,wed,thu,fri --from 9am --to 5pm`.
+
+`--once` does not stack with a repeating schedule. `--server` stacks with any of them. Grant still happens on this box, as you. A body cannot add itself.
 3. `clix <body> <cmd>` runs that argv on that box only if `cmd` is granted there. Denied otherwise. Each run is a job in the log, visible on that device. No lingering shell.
 4. Pin `~/src` both ways. If both sides wrote, stop and say so. No invented merge.
 5. One log. Tests and `adb` are the same work. `clix log` from any box.
