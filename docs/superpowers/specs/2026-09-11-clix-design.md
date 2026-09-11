@@ -95,10 +95,9 @@ Two Arch machines.
 Narrow it when you want:
 
 - Who: `clix add adb --server` (or `--allow server`) — only that body. More names if you want more than one. Unnamed bodies are denied.
-- How long: `--for 2h`, `--until 5pm`, `--once` (one successful run, then gone).
-- Repeating: `--weekdays 9am-5pm` — Monday–Friday, those hours, on this box’s clock. Outside that window, denied.
+- How long: `--for 2h`, `--until 18:00`, `--once` (one successful run, then gone).
 
-`--once` does not stack with `--weekdays` (one run vs a weekly door). `--server` stacks with any of them. Example: `clix add adb --server --for 2h`. Grant still happens on this box, as you. A body cannot add itself.
+Those stack: `clix add adb --server --once --for 2h`. Recurring hours (weekdays 9–17) are later. Grant still happens on this box, as you. A body cannot add itself.
 3. `clix <body> <cmd>` runs that argv on that box only if `cmd` is granted there. Denied otherwise. Each run is a job in the log, visible on that device. No lingering shell.
 4. Pin `~/src` both ways. If both sides wrote, stop and say so. No invented merge.
 5. One log. Tests and `adb` are the same work. `clix log` from any box.
@@ -110,7 +109,7 @@ Narrow it when you want:
 ## Later
 
 - Phone sidecar (Andrix)
-- Arg limits, adb serial / one USB device, lost device
+- Recurring grant windows, arg limits, adb serial / one USB device, lost device
 - Clipboard / file handoff
 - Conflict policy that does not invent merges
 - QR on the pairing card
