@@ -73,7 +73,11 @@ v0 works with no agent. An agent is another client of the same commands, and wil
 
 The agent does not type into your terminal. It asks Clix to run `clix laptop adb` the same way you do. Same user, same log.
 
-If a tool is not granted, the agent may **request** it (`clix request laptop adb`, or a denied exec becomes a request). The laptop shows pending (`clix pending`, and a notification). You approve on that box: `clix allow` (latest request) or `clix deny`. You can tighten with `--once` / `--for` / `--server`. A request with no window is treated as `--once` unless you widen it. Do not approve in the agent chat; the agent can type “yes”. Lid down: the request waits until you open the laptop. The agent cannot `clix allow`.
+If a tool is not granted, the agent may **request** it (`clix request laptop adb`, or a denied exec becomes a request). That shows on the box that has the tool.
+
+**Request UI:** a small prompt on that box (notification + dialog), not a Clix control panel and not a compositor. Who wants what, from which body. Buttons: Allow once, Allow (you pick `--for` / `--until` / which body), Deny. Default button is Allow once.
+
+`clix pending` / `clix allow` / `clix deny` still work in the terminal (headless, or you prefer the shell). Same objects as the GUI. Do not approve in the agent chat; the agent can type “yes”. Lid down: the request waits; the prompt appears when the box is up. The agent cannot `clix allow` and cannot click the dialog.
 
 ## Andrix (later)
 
