@@ -285,6 +285,23 @@ fn exec_without_cmd_is_usage() {
 }
 
 #[test]
+fn request_is_reserved_not_a_body() {
+    let err = parse_argv(&[
+        "clix".into(),
+        "request".into(),
+        "laptop".into(),
+        "adb".into(),
+    ])
+    .unwrap_err();
+    match err {
+        ClixError::Usage(s) => {
+            assert!(!s.is_empty());
+            assert!(s.len() < 80, "usage string should be short: {s}");
+        }
+    }
+}
+
+#[test]
 fn bad_weekday_is_usage() {
     let err = parse_argv(&[
         "clix".into(),

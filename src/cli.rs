@@ -158,6 +158,12 @@ pub fn parse_argv(argv: &[String]) -> Result<Cmd> {
         Some(Commands::Install) => Ok(Cmd::Install),
         Some(Commands::Status) => Ok(Cmd::Status),
         Some(Commands::External(parts)) => {
+            if parts.is_empty() {
+                return Err(ClixError::Usage("usage: clix <body> <cmd>…".into()));
+            }
+            if is_reserved(&parts[0]) {
+                return Err(ClixError::Usage(format!("usage: clix {} …", parts[0])));
+            }
             if parts.len() < 2 {
                 return Err(ClixError::Usage("usage: clix <body> <cmd>…".into()));
             }
@@ -166,6 +172,25 @@ pub fn parse_argv(argv: &[String]) -> Result<Cmd> {
             Ok(Cmd::Exec { body, argv })
         }
     }
+}
+
+/// CLI reserved words. Not body names, even when the Cmd variant is not built yet.
+fn is_reserved(word: &str) -> bool {
+    matches!(
+        word,
+        "daemon"
+            | "install"
+            | "pair"
+            | "add"
+            | "remove"
+            | "hands"
+            | "log"
+            | "pending"
+            | "allow"
+            | "deny"
+            | "request"
+            | "status"
+    )
 }
 
 fn validate_days(days: Vec<String>) -> Result<Vec<String>> {
