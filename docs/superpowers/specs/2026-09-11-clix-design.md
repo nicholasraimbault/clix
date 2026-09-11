@@ -105,9 +105,7 @@ clix add adb --dates 1,15
 clix add adb --days fri --dates 1 --from 9am --to 5pm
 ```
 
-`--weekdays 9am-5pm` is sugar for `--days mon,tue,wed,thu,fri --from 9am --to 5pm`.
-
-`--once` does not stack with a repeating schedule. `--server` stacks with any of them. Grant still happens on this box, as you. A body cannot add itself.
+`--once` does not stack with a repeating schedule. `--server` / `--allow` stacks with any of them. Grant still happens on this box, as you. A body cannot add itself.
 3. `clix <body> <cmd>` runs that argv on that box only if `cmd` is granted there. Denied otherwise. Each run is a job in the log, visible on that device. No lingering shell.
 4. Pin `~/src` both ways. If both sides wrote, stop and say so. No invented merge.
 5. One log. Tests and `adb` are the same work. `clix log` from any box.
