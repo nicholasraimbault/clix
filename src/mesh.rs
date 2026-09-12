@@ -6,13 +6,14 @@ use serde_json::{json, Value};
 use sha2::Sha256;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, Notify};
 
 use crate::error::{ClixError, Result};
-use crate::exec::exec_checked;
+use crate::exec::{exec_checked, exec_with_job};
+use crate::job;
 use crate::pair;
 use crate::store::Store;
-use crate::types::Peer;
+use crate::types::{Job, JobStatus, Peer};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -23,6 +24,7 @@ const OWNER_OPS: &[&str] = &["add", "remove", "allow", "deny", "pair"];
 pub struct MeshHandle {
     pub addr: String,
     inner: Arc<Mutex<MeshInner>>,
+    pub woke: Arc<Notify>,
 }
 
 struct MeshInner {
@@ -48,6 +50,7 @@ impl MeshListener {
                     pair_tx: None,
                     pair_done: None,
                 })),
+                woke: Arc::new(Notify::new()),
             },
         })
     }
@@ -89,6 +92,10 @@ impl MeshHandle {
             .pair_done
             .take()
             .ok_or_else(|| ClixError::Usage("not pairing".into()))
+    }
+
+    pub fn wake(&self) {
+        self.woke.notify_waiters();
     }
 }
 
@@ -173,7 +180,7 @@ async fn serve_conn(
     let mut peek = [0u8; 4];
     let n = stream.peek(&mut peek).await.unwrap_or(0);
     if n >= 4 && looks_http(&peek) {
-        handle_http(store, &mut stream).await
+        handle_http(store, &handle, &mut stream).await
     } else {
         let waiter = {
             let mut inner = lock_inner(&handle);
@@ -193,9 +200,13 @@ fn looks_http(b: &[u8]) -> bool {
         || b.starts_with(b"HEAD")
 }
 
-async fn handle_http(store: Arc<Mutex<Store>>, stream: &mut TcpStream) -> Result<()> {
+async fn handle_http(
+    store: Arc<Mutex<Store>>,
+    handle: &MeshHandle,
+    stream: &mut TcpStream,
+) -> Result<()> {
     let msg = read_http(stream).await?;
-    let (status, v) = match dispatch_http(&store, &msg) {
+    let (status, v) = match dispatch_http(&store, handle, &msg) {
         Ok(v) => (200, v),
         Err(e) => {
             let status = match &e {
@@ -210,7 +221,7 @@ async fn handle_http(store: Arc<Mutex<Store>>, stream: &mut TcpStream) -> Result
     Ok(())
 }
 
-fn dispatch_http(store: &Arc<Mutex<Store>>, msg: &HttpMsg) -> Result<Value> {
+fn dispatch_http(store: &Arc<Mutex<Store>>, handle: &MeshHandle, msg: &HttpMsg) -> Result<Value> {
     if msg.method() != "POST" {
         return Err(ClixError::Usage("POST only".into()));
     }
@@ -239,10 +250,15 @@ fn dispatch_http(store: &Arc<Mutex<Store>>, msg: &HttpMsg) -> Result<Value> {
         return Err(ClixError::Io("unknown peer".into()));
     }
     let req: Value = serde_json::from_slice(&msg.body)?;
-    handle_mesh_req(store, &peer, req)
+    handle_mesh_req(store, handle, &peer, req)
 }
 
-fn handle_mesh_req(store: &Arc<Mutex<Store>>, peer: &Peer, req: Value) -> Result<Value> {
+fn handle_mesh_req(
+    store: &Arc<Mutex<Store>>,
+    handle: &MeshHandle,
+    peer: &Peer,
+    req: Value,
+) -> Result<Value> {
     let op = req.get("op").and_then(Value::as_str).unwrap_or("");
     if OWNER_OPS.contains(&op) {
         return Err(ClixError::Usage(format!(
@@ -252,11 +268,94 @@ fn handle_mesh_req(store: &Arc<Mutex<Store>>, peer: &Peer, req: Value) -> Result
     match op {
         "exec" => {
             let argv = json_string_list(req.get("argv"));
-            exec_checked(store, &peer.name, &argv)
+            let job_id = req
+                .get("job_id")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            match job_id {
+                Some(id) => exec_with_job(store, &peer.name, &argv, Some(id)),
+                None => exec_checked(store, &peer.name, &argv),
+            }
         }
-        "request" | "job_poll" => Ok(json!({"ok": true})),
+        "job_poll" => rpc_job_poll(store, handle, peer, &req),
+        "job_result" => rpc_job_result(store, handle, &req),
+        "request" => Ok(json!({"ok": true})),
         "" => Err(ClixError::Usage("missing op".into())),
         other => Err(ClixError::Usage(format!("unknown op: {other}"))),
+    }
+}
+
+fn rpc_job_poll(
+    store: &Arc<Mutex<Store>>,
+    handle: &MeshHandle,
+    peer: &Peer,
+    req: &Value,
+) -> Result<Value> {
+    if let Some(addr) = req.get("addr").and_then(Value::as_str) {
+        if !addr.is_empty() {
+            let mut s = lock_store(store);
+            if let Some(p) = s.peers.iter_mut().find(|p| p.owner_pk == peer.owner_pk) {
+                p.addr = Some(addr.to_string());
+                s.save()?;
+            }
+        }
+    }
+    let jobs: Vec<Job> = {
+        let s = lock_store(store);
+        s.jobs
+            .iter()
+            .filter(|j| j.body == peer.name && matches!(j.status, JobStatus::WaitingBody))
+            .cloned()
+            .collect()
+    };
+    handle.wake();
+    Ok(json!({"ok": true, "jobs": jobs}))
+}
+
+fn rpc_job_result(store: &Arc<Mutex<Store>>, handle: &MeshHandle, req: &Value) -> Result<Value> {
+    if let Some(v) = req.get("result").and_then(|r| r.get("job")).cloned() {
+        let job: Job = serde_json::from_value(v)?;
+        job::put(store, job)?;
+        handle.wake();
+    } else if let Some(v) = req.get("job").cloned() {
+        let job: Job = serde_json::from_value(v)?;
+        job::put(store, job)?;
+        handle.wake();
+    }
+    Ok(json!({"ok": true}))
+}
+
+/// On sidecar start: tell peers our addr, pull waiting jobs destined here, run them.
+pub async fn claim_waiting_jobs(store: Arc<Mutex<Store>>, local_addr: String) {
+    let (peers, sk, name) = {
+        let s = lock_store(&store);
+        (s.peers.clone(), s.owner_sk.clone(), s.body_name.clone())
+    };
+    for peer in peers {
+        let Some(addr) = peer.addr.clone() else {
+            continue;
+        };
+        let Ok(v) = call(&addr, &sk, json!({"op": "job_poll", "addr": local_addr})).await else {
+            continue;
+        };
+        let jobs = v
+            .get("jobs")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        for jv in jobs {
+            let Ok(job) = serde_json::from_value::<Job>(jv) else {
+                continue;
+            };
+            if job.body.0 != name {
+                continue;
+            }
+            let Ok(result) = exec_with_job(&store, &job.from, &job.argv, Some(job.id.clone()))
+            else {
+                continue;
+            };
+            let _ = call(&addr, &sk, json!({"op": "job_result", "result": result})).await;
+        }
     }
 }
 

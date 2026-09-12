@@ -10,7 +10,7 @@ use tokio::net::UnixListener;
 use crate::cli::Cmd;
 use crate::error::{ClixError, Result};
 use crate::local::{self, client_send};
-use crate::mesh::{MeshHandle, MeshListener};
+use crate::mesh::{self, MeshHandle, MeshListener};
 use crate::paths::{socket_path, state_dir};
 use crate::store::Store;
 
@@ -81,6 +81,10 @@ pub async fn serve(store: Arc<Mutex<Store>>, sock: PathBuf, mesh: MeshListener) 
     prepare_socket_path(&sock)?;
     let listener = UnixListener::bind(&sock)?;
     set_owner_mode(&sock)?;
+    tokio::spawn(mesh::claim_waiting_jobs(
+        store.clone(),
+        mesh_handle.addr.clone(),
+    ));
     tokio::select! {
         r = local_loop(store.clone(), mesh_handle, listener) => r,
         r = mesh.run(store.clone()) => r,

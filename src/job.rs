@@ -1,8 +1,13 @@
 use std::fs;
 use std::io::Read;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use serde_json::{json, Value};
+use tokio::sync::Notify;
 
 use crate::error::{ClixError, Result};
+use crate::mesh;
 use crate::store::Store;
 use crate::types::{BodyId, Job, JobStatus};
 
@@ -37,8 +42,169 @@ pub fn append(
         status,
     };
     let mut store = store.lock().unwrap_or_else(|e| e.into_inner());
-    store.append_job(job.clone())?;
+    store.put_job(job.clone())?;
     Ok(job)
+}
+
+pub fn put(store: &Arc<Mutex<Store>>, job: Job) -> Result<Job> {
+    let mut store = store.lock().unwrap_or_else(|e| e.into_inner());
+    store.put_job(job.clone())?;
+    Ok(job)
+}
+
+pub fn asleep_message(body: &str) -> String {
+    format!("{body} is asleep, waiting…")
+}
+
+pub fn waiting_json(body: &str, job: &Job) -> Value {
+    json!({
+        "ok": true,
+        "status": "waiting",
+        "waiting": asleep_message(body),
+        "job": job,
+    })
+}
+
+pub fn exec_json(job: &Job) -> Value {
+    match &job.status {
+        JobStatus::Done { exit } => json!({
+            "status": "done",
+            "exit": exit,
+            "stdout": "",
+            "stderr": "",
+            "job": job,
+        }),
+        JobStatus::Denied { reason } => json!({
+            "status": "denied",
+            "reason": reason,
+            "job": job,
+        }),
+        JobStatus::Failed { reason } => json!({
+            "status": "failed",
+            "reason": reason,
+            "job": job,
+        }),
+        JobStatus::WaitingBody => waiting_json(&job.body.0, job),
+        JobStatus::Running => json!({
+            "status": "running",
+            "job": job,
+        }),
+    }
+}
+
+pub fn is_terminal(status: &JobStatus) -> bool {
+    matches!(
+        status,
+        JobStatus::Done { .. } | JobStatus::Denied { .. } | JobStatus::Failed { .. }
+    )
+}
+
+/// `CLIX_WAIT_POLL` default 2s. Accepts `2`, `2s`, `50ms`.
+pub fn poll_interval() -> Duration {
+    let raw = std::env::var("CLIX_WAIT_POLL").unwrap_or_default();
+    parse_poll(&raw).unwrap_or(Duration::from_secs(2))
+}
+
+fn parse_poll(raw: &str) -> Option<Duration> {
+    let s = raw.trim();
+    if s.is_empty() {
+        return None;
+    }
+    if let Some(ms) = s.strip_suffix("ms") {
+        return ms
+            .parse::<u64>()
+            .ok()
+            .map(|n| Duration::from_millis(n.max(1)));
+    }
+    if let Some(rest) = s.strip_suffix('s') {
+        if let Ok(n) = rest.parse::<u64>() {
+            return Some(Duration::from_secs(n.max(1)));
+        }
+        if let Ok(f) = rest.parse::<f64>() {
+            return Some(Duration::from_secs_f64(f.max(0.001)));
+        }
+        return None;
+    }
+    if let Ok(n) = s.parse::<u64>() {
+        return Some(Duration::from_secs(n.max(1)));
+    }
+    s.parse::<f64>()
+        .ok()
+        .map(|f| Duration::from_secs_f64(f.max(0.001)))
+}
+
+pub fn is_unreachable(err: &ClixError) -> bool {
+    let ClixError::Io(s) = err else {
+        return false;
+    };
+    let s = s.to_ascii_lowercase();
+    s.contains("connection refused")
+        || s.contains("connection reset")
+        || s.contains("connection aborted")
+        || s.contains("broken pipe")
+        || s.contains("timed out")
+        || s.contains("timeout")
+        || s.contains("network is unreachable")
+        || s.contains("host is unreachable")
+        || s.contains("no route to host")
+        || s.contains("not connected")
+        || s.contains("os error 111")
+        || s.contains("os error 104")
+        || s.contains("os error 110")
+        || s.contains("empty mesh response")
+}
+
+/// Retry mesh exec until the body is back or the job is already terminal.
+/// Grant check happens on the runner at run time.
+pub async fn wait_for_peer(
+    store: &Arc<Mutex<Store>>,
+    woke: &Notify,
+    body: &str,
+    sk: &[u8],
+    argv: &[String],
+    job: &Job,
+) -> Result<Value> {
+    loop {
+        {
+            let s = store.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(existing) = s.jobs.iter().find(|j| j.id == job.id) {
+                if is_terminal(&existing.status) {
+                    return Ok(exec_json(existing));
+                }
+            }
+        }
+        let addr = {
+            let s = store.lock().unwrap_or_else(|e| e.into_inner());
+            s.peers
+                .iter()
+                .find(|p| p.name.0 == body)
+                .and_then(|p| p.addr.clone())
+        };
+        if let Some(addr) = addr {
+            match mesh::call(
+                &addr,
+                sk,
+                json!({"op": "exec", "argv": argv, "job_id": job.id}),
+            )
+            .await
+            {
+                Ok(resp) => {
+                    if let Some(v) = resp.get("job") {
+                        if let Ok(done) = serde_json::from_value::<Job>(v.clone()) {
+                            put(store, done)?;
+                        }
+                    }
+                    return Ok(resp);
+                }
+                Err(e) if is_unreachable(&e) => {}
+                Err(e) => return Err(e),
+            }
+        }
+        tokio::select! {
+            _ = tokio::time::sleep(poll_interval()) => {}
+            _ = woke.notified() => {}
+        }
+    }
 }
 
 pub fn format_line(job: &Job) -> String {

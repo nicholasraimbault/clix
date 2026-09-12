@@ -16,28 +16,38 @@ use crate::job;
 use crate::mesh::{self, MeshHandle};
 use crate::pair::{self, hostname};
 use crate::store::Store;
-use crate::types::{BodyId, Job, Schedule};
+use crate::types::{BodyId, Job, JobStatus, Schedule};
 
 pub fn client_send(sock: &Path, req: Value) -> Result<Value> {
+    let no_wait = req.get("no_wait").and_then(Value::as_bool).unwrap_or(false);
     let mut stream = UnixStream::connect(sock).map_err(connect_err)?;
     let mut payload = serde_json::to_string(&req)?;
     payload.push('\n');
     stream.write_all(payload.as_bytes())?;
     stream.flush()?;
-    let mut line = String::new();
-    let n = BufReader::new(&mut stream).read_line(&mut line)?;
-    if n == 0 {
-        return Err(ClixError::Io("daemon closed the connection".into()));
+    let mut reader = BufReader::new(stream);
+    loop {
+        let mut line = String::new();
+        let n = reader.read_line(&mut line)?;
+        if n == 0 {
+            return Err(ClixError::Io("daemon closed the connection".into()));
+        }
+        let v: Value = serde_json::from_str(&line)?;
+        if v.get("ok") == Some(&Value::Bool(false)) {
+            let msg = v
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("request failed");
+            return Err(ClixError::Io(msg.to_string()));
+        }
+        if v.get("status").and_then(Value::as_str) == Some("waiting") && !no_wait {
+            if let Some(msg) = v.get("waiting").and_then(Value::as_str) {
+                eprintln!("{msg}");
+            }
+            continue;
+        }
+        return Ok(v);
     }
-    let v: Value = serde_json::from_str(&line)?;
-    if v.get("ok") == Some(&Value::Bool(false)) {
-        let msg = v
-            .get("error")
-            .and_then(Value::as_str)
-            .unwrap_or("request failed");
-        return Err(ClixError::Io(msg.to_string()));
-    }
-    Ok(v)
 }
 
 fn connect_err(e: std::io::Error) -> ClixError {
@@ -77,6 +87,16 @@ pub(crate) async fn handle_connection(
                 continue;
             }
         };
+        let op = req.get("op").and_then(Value::as_str);
+        if op == Some("exec") {
+            if let Err(e) = rpc_exec(&store, &mesh, &req, &mut writer).await {
+                let err = json!({"ok": false, "error": e.to_string()});
+                if write_json(&mut writer, &err).await.is_err() {
+                    break;
+                }
+            }
+            continue;
+        }
         let resp = match handle_rpc(&store, &mesh, req).await {
             Ok(v) => v,
             Err(e) => json!({"ok": false, "error": e.to_string()}),
@@ -104,7 +124,6 @@ async fn handle_rpc(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: Value) ->
         "add" => rpc_add(store, &req),
         "hands" => rpc_hands(store),
         "remove" => rpc_remove(store, &req),
-        "exec" => rpc_exec(store, &req).await,
         "log" => rpc_log(store),
         "status" => rpc_status(store, mesh),
         "pair_start" => rpc_pair_start(store, mesh, &req),
@@ -149,7 +168,12 @@ fn rpc_remove(store: &Arc<Mutex<Store>>, req: &Value) -> Result<Value> {
     Ok(json!({"ok": true}))
 }
 
-async fn rpc_exec(store: &Arc<Mutex<Store>>, req: &Value) -> Result<Value> {
+async fn rpc_exec<W: AsyncWriteExt + Unpin>(
+    store: &Arc<Mutex<Store>>,
+    mesh: &MeshHandle,
+    req: &Value,
+    writer: &mut W,
+) -> Result<()> {
     let body = req
         .get("body")
         .and_then(Value::as_str)
@@ -158,23 +182,56 @@ async fn rpc_exec(store: &Arc<Mutex<Store>>, req: &Value) -> Result<Value> {
     if argv.is_empty() {
         return Err(ClixError::Usage("usage: clix <body> <cmd>…".into()));
     }
+    let no_wait = req.get("no_wait").and_then(Value::as_bool).unwrap_or(false);
     let (this, dest, sk) = {
         let store = lock_store(store);
         let dest = store.peers.iter().find(|p| p.name.0 == body).cloned();
         (store.body_name.clone(), dest, store.owner_sk.clone())
     };
     if body == this {
-        return exec_checked(store, &BodyId(this), &argv);
+        let resp = exec_checked(store, &BodyId(this), &argv)?;
+        write_json(writer, &resp).await?;
+        return Ok(());
     }
     let Some(addr) = dest.and_then(|p| p.addr) else {
-        return Ok(json!({
-            "status": "denied",
-            "reason": format!("{body} is not this body"),
-        }));
+        write_json(
+            writer,
+            &json!({
+                "status": "denied",
+                "reason": format!("{body} is not this body"),
+            }),
+        )
+        .await?;
+        return Ok(());
     };
-    let resp = mesh::call(&addr, &sk, json!({"op": "exec", "argv": argv})).await?;
-    append_origin_job(store, &resp)?;
-    Ok(resp)
+    match mesh::call(&addr, &sk, json!({"op": "exec", "argv": argv})).await {
+        Ok(resp) => {
+            append_origin_job(store, &resp)?;
+            write_json(writer, &resp).await?;
+            Ok(())
+        }
+        Err(e) if job::is_unreachable(&e) => {
+            let from = BodyId(this);
+            let dest = BodyId(body.to_string());
+            let waiting = job::append(store, from, dest, argv.clone(), JobStatus::WaitingBody)?;
+            write_json(writer, &job::waiting_json(body, &waiting)).await?;
+            let store = store.clone();
+            let woke = mesh.woke.clone();
+            let body = body.to_string();
+            let sk = sk.clone();
+            if no_wait {
+                tokio::spawn(async move {
+                    let _ = job::wait_for_peer(&store, &woke, &body, &sk, &argv, &waiting).await;
+                });
+                Ok(())
+            } else {
+                let resp = job::wait_for_peer(&store, &woke, &body, &sk, &argv, &waiting).await?;
+                write_json(writer, &resp).await?;
+                Ok(())
+            }
+        }
+        Err(e) => Err(e),
+    }
 }
 
 fn rpc_log(store: &Arc<Mutex<Store>>) -> Result<Value> {
@@ -389,7 +446,16 @@ pub(crate) fn rpc_from_cmd(cmd: &Cmd) -> Result<Value> {
         })),
         Cmd::Hands => Ok(json!({"op": "hands"})),
         Cmd::Remove { tool } => Ok(json!({"op": "remove", "tool": tool})),
-        Cmd::Exec { body, argv } => Ok(json!({"op": "exec", "body": body, "argv": argv})),
+        Cmd::Exec {
+            body,
+            argv,
+            no_wait,
+        } => Ok(json!({
+            "op": "exec",
+            "body": body,
+            "argv": argv,
+            "no_wait": no_wait,
+        })),
         Cmd::Pair { phrase, name } => match phrase {
             None => Ok(json!({"op": "pair_start", "name": name})),
             Some(phrase) => Ok(json!({"op": "pair_join", "phrase": phrase, "name": name})),
@@ -425,8 +491,23 @@ pub(crate) fn emit_rpc(cmd: &Cmd, v: &Value) -> Result<()> {
             }
             Ok(())
         }
-        Cmd::Exec { .. } => {
+        Cmd::Exec { no_wait, .. } => {
             let status = v.get("status").and_then(Value::as_str);
+            if status == Some("waiting") {
+                if let Some(msg) = v.get("waiting").and_then(Value::as_str) {
+                    eprintln!("{msg}");
+                }
+                if *no_wait {
+                    if let Some(id) = v
+                        .get("job")
+                        .and_then(|j| j.get("id"))
+                        .and_then(Value::as_str)
+                    {
+                        println!("{id}");
+                    }
+                }
+                return Ok(());
+            }
             if status == Some("denied") || status == Some("failed") {
                 let reason = v.get("reason").and_then(Value::as_str).unwrap_or("denied");
                 return Err(ClixError::Io(reason.to_string()));

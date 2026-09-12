@@ -22,6 +22,7 @@ pub enum Cmd {
     Exec {
         body: String,
         argv: Vec<String>,
+        no_wait: bool,
     },
     Pair {
         phrase: Option<String>,
@@ -44,6 +45,8 @@ pub enum Cmd {
 #[command(name = "clix", disable_help_subcommand = true, color = ColorChoice::Never)]
 #[command(allow_external_subcommands = true)]
 struct Cli {
+    #[arg(long = "no-wait", global = true)]
+    no_wait: bool,
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -161,6 +164,7 @@ pub fn parse_argv(argv: &[String]) -> Result<Cmd> {
         Some(Commands::Install) => Ok(Cmd::Install),
         Some(Commands::Status) => Ok(Cmd::Status),
         Some(Commands::External(parts)) => {
+            let (parts, no_wait) = strip_no_wait(parts, cli.no_wait);
             if parts.is_empty() {
                 return Err(ClixError::Usage("usage: clix <body> <cmd>…".into()));
             }
@@ -172,9 +176,26 @@ pub fn parse_argv(argv: &[String]) -> Result<Cmd> {
             }
             let body = parts[0].clone();
             let argv = parts[1..].to_vec();
-            Ok(Cmd::Exec { body, argv })
+            Ok(Cmd::Exec {
+                body,
+                argv,
+                no_wait,
+            })
         }
     }
+}
+
+/// `--no-wait` before the body or between body and tool. Not stolen from tool argv.
+fn strip_no_wait(mut parts: Vec<String>, mut no_wait: bool) -> (Vec<String>, bool) {
+    if parts.first().map(String::as_str) == Some("--no-wait") {
+        no_wait = true;
+        parts.remove(0);
+    }
+    if parts.len() >= 2 && parts[1] == "--no-wait" {
+        no_wait = true;
+        parts.remove(1);
+    }
+    (parts, no_wait)
 }
 
 /// CLI reserved words. Not body names, even when the Cmd variant is not built yet.

@@ -62,7 +62,15 @@ impl Store {
     }
 
     pub fn append_job(&mut self, job: Job) -> Result<()> {
-        self.jobs.push(job);
+        self.put_job(job)
+    }
+
+    pub fn put_job(&mut self, job: Job) -> Result<()> {
+        if let Some(existing) = self.jobs.iter_mut().find(|j| j.id == job.id) {
+            *existing = job;
+        } else {
+            self.jobs.push(job);
+        }
         self.save()
     }
 }

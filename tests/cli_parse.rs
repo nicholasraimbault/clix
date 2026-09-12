@@ -14,9 +14,14 @@ fn exec_is_body_then_argv() {
     ])
     .unwrap();
     match cmd {
-        Cmd::Exec { body, argv } => {
+        Cmd::Exec {
+            body,
+            argv,
+            no_wait,
+        } => {
             assert_eq!(body, "laptop");
             assert_eq!(argv, vec!["adb", "devices"]);
+            assert!(!no_wait);
         }
         _ => panic!("expected exec"),
     }
@@ -297,6 +302,51 @@ fn remove_without_tool_is_usage() {
     match err {
         ClixError::Usage(s) => assert!(!s.is_empty()),
         other => panic!("expected usage, got {other}"),
+    }
+}
+
+#[test]
+fn exec_no_wait_flag() {
+    for argv in [
+        vec![
+            "clix".into(),
+            "--no-wait".into(),
+            "laptop".into(),
+            "adb".into(),
+        ],
+        vec![
+            "clix".into(),
+            "laptop".into(),
+            "--no-wait".into(),
+            "adb".into(),
+        ],
+    ] {
+        match parse_argv(&argv).unwrap() {
+            Cmd::Exec {
+                body,
+                argv,
+                no_wait,
+            } => {
+                assert_eq!(body, "laptop");
+                assert_eq!(argv, vec!["adb"]);
+                assert!(no_wait);
+            }
+            other => panic!("expected exec, got {other:?}"),
+        }
+    }
+    match parse_argv(&[
+        "clix".into(),
+        "laptop".into(),
+        "adb".into(),
+        "--no-wait".into(),
+    ])
+    .unwrap()
+    {
+        Cmd::Exec { argv, no_wait, .. } => {
+            assert_eq!(argv, vec!["adb", "--no-wait"]);
+            assert!(!no_wait);
+        }
+        other => panic!("expected exec, got {other:?}"),
     }
 }
 

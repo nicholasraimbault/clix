@@ -15,12 +15,17 @@ fn pair_addrs() -> &'static Mutex<HashMap<String, String>> {
     PAIR_ADDRS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+struct DaemonProc {
+    home: TempDir,
+    handle: Mutex<Option<JoinHandle<Result<(), ClixError>>>>,
+}
+
+#[derive(Clone)]
 pub struct TestDaemon {
-    _home: TempDir,
+    proc: Arc<DaemonProc>,
     pub sock: PathBuf,
     mesh_addr: String,
     owner_sk: Vec<u8>,
-    handle: JoinHandle<Result<(), ClixError>>,
 }
 
 impl TestDaemon {
@@ -42,11 +47,47 @@ impl TestDaemon {
         let handle = tokio::spawn(serve(store, sock.clone(), mesh));
         wait_until_listening(&sock, &handle).await;
         Self {
-            _home: home,
+            proc: Arc::new(DaemonProc {
+                home,
+                handle: Mutex::new(Some(handle)),
+            }),
             sock,
             mesh_addr,
             owner_sk,
-            handle,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub async fn kill(&self) {
+        let handle = {
+            let mut g = self.proc.handle.lock().unwrap_or_else(|e| e.into_inner());
+            g.take()
+        };
+        if let Some(handle) = handle {
+            handle.abort();
+            let _ = handle.await;
+        }
+        let _ = std::fs::remove_file(&self.sock);
+    }
+
+    #[allow(dead_code)]
+    pub async fn restart(&self) -> Self {
+        self.kill().await;
+        let dir = self.proc.home.path();
+        let store = Store::open(dir).unwrap();
+        let owner_sk = store.owner_sk.clone();
+        let store = Arc::new(Mutex::new(store));
+        let mesh = rebind_mesh(&self.mesh_addr).await;
+        let mesh_addr = mesh.local_addr().to_string();
+        let sock = self.sock.clone();
+        let handle = tokio::spawn(serve(store, sock.clone(), mesh));
+        wait_until_listening(&sock, &handle).await;
+        *self.proc.handle.lock().unwrap_or_else(|e| e.into_inner()) = Some(handle);
+        Self {
+            proc: Arc::clone(&self.proc),
+            sock,
+            mesh_addr,
+            owner_sk,
         }
     }
 
@@ -110,7 +151,32 @@ pub async fn paired(a: &str, b: &str) -> (TestDaemon, TestDaemon) {
 
 impl Drop for TestDaemon {
     fn drop(&mut self) {
-        self.handle.abort();
+        if Arc::strong_count(&self.proc) == 1 {
+            if let Some(handle) = self
+                .proc
+                .handle
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take()
+            {
+                handle.abort();
+            }
+        }
+    }
+}
+
+async fn rebind_mesh(addr: &str) -> MeshListener {
+    let start = Instant::now();
+    loop {
+        match MeshListener::bind(addr).await {
+            Ok(m) => return m,
+            Err(e) => {
+                if start.elapsed() > Duration::from_secs(2) {
+                    panic!("timed out rebinding {addr}: {e}");
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }
     }
 }
 

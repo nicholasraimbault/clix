@@ -24,9 +24,31 @@ pub(crate) fn exec_checked(
     from: &BodyId,
     argv: &[String],
 ) -> Result<Value> {
+    exec_with_job(store, from, argv, None)
+}
+
+/// Same as `exec_checked`, reusing `job_id` so a wait retry does not run twice.
+pub(crate) fn exec_with_job(
+    store: &Arc<Mutex<Store>>,
+    from: &BodyId,
+    argv: &[String],
+    job_id: Option<String>,
+) -> Result<Value> {
     if argv.is_empty() {
         return Err(ClixError::Usage("usage: clix <body> <cmd>…".into()));
     }
+    if let Some(ref id) = job_id {
+        let s = lock(store);
+        if let Some(job) = s.jobs.iter().find(|j| j.id == *id) {
+            if job::is_terminal(&job.status) {
+                return Ok(job::exec_json(job));
+            }
+        }
+    }
+    let id = match job_id {
+        Some(id) => id,
+        None => job::new_id()?,
+    };
     let (grant, body) = {
         let s = lock(store);
         let body = BodyId(s.body_name.clone());
@@ -35,8 +57,9 @@ pub(crate) fn exec_checked(
             Err(e) => {
                 drop(s);
                 let reason = e.to_string();
-                let job = job::append(
+                let job = finish_job(
                     store,
+                    id,
                     from.clone(),
                     body,
                     argv.to_vec(),
@@ -65,7 +88,7 @@ pub(crate) fn exec_checked(
                     },
                 ),
             };
-            let job = job::append(store, from.clone(), body, argv.to_vec(), job_status)?;
+            let job = finish_job(store, id, from.clone(), body, argv.to_vec(), job_status)?;
             Ok(json!({
                 "status": status,
                 "reason": reason,
@@ -81,13 +104,13 @@ pub(crate) fn exec_checked(
                     consume_once(&mut s, &grant.tool);
                 }
                 let job = Job {
-                    id: job::new_id()?,
+                    id,
                     body,
                     argv: argv.to_vec(),
                     from: from.clone(),
                     status: job_status,
                 };
-                s.append_job(job.clone())?;
+                s.put_job(job.clone())?;
                 job
             };
             Ok(json!({
@@ -99,6 +122,24 @@ pub(crate) fn exec_checked(
             }))
         }
     }
+}
+
+fn finish_job(
+    store: &Arc<Mutex<Store>>,
+    id: String,
+    from: BodyId,
+    body: BodyId,
+    argv: Vec<String>,
+    status: JobStatus,
+) -> Result<Job> {
+    let job = Job {
+        id,
+        body,
+        argv,
+        from,
+        status,
+    };
+    job::put(store, job)
 }
 
 fn denied_json(reason: String, job: Job) -> Value {
