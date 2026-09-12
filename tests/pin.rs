@@ -31,8 +31,9 @@ fn copies_new_file_to_peer() {
     let a = tempfile::tempdir().unwrap();
     let b = tempfile::tempdir().unwrap();
     write_rel(a.path(), "hello.rs", "fn main() {}");
-    let (_state, mut store) = store_named("laptop");
-    clix::pin_sync(&mut store, a.path(), b.path(), "server").unwrap();
+    let (_la, mut laptop) = store_named("laptop");
+    let (_sa, mut server) = store_named("server");
+    clix::pin_sync(&mut laptop, a.path(), &mut server, b.path()).unwrap();
     assert_eq!(
         fs::read_to_string(b.path().join("hello.rs")).unwrap(),
         "fn main() {}"
@@ -45,8 +46,9 @@ fn conflict_stops() {
     let b = tempfile::tempdir().unwrap();
     write_rel(a.path(), "foo.rs", "laptop wrote this");
     write_rel(b.path(), "foo.rs", "server wrote this");
-    let (_state, mut store) = store_named("laptop");
-    let err = clix::pin_sync(&mut store, a.path(), b.path(), "server").unwrap_err();
+    let (_la, mut laptop) = store_named("laptop");
+    let (_sa, mut server) = store_named("server");
+    let err = clix::pin_sync(&mut laptop, a.path(), &mut server, b.path()).unwrap_err();
     let msg = err.to_string();
     assert!(msg.contains("Not merging"), "{msg}");
     assert!(msg.contains("foo.rs"), "{msg}");
@@ -58,6 +60,27 @@ fn conflict_stops() {
         fs::read_to_string(b.path().join("foo.rs")).unwrap(),
         "server wrote this"
     );
+}
+
+#[test]
+fn one_side_edit_copies_after_sync() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    write_rel(a.path(), "foo.rs", "v1");
+    let (_la, mut laptop) = store_named("laptop");
+    let (_sa, mut server) = store_named("server");
+    clix::pin_sync(&mut laptop, a.path(), &mut server, b.path()).unwrap();
+    assert_eq!(fs::read_to_string(b.path().join("foo.rs")).unwrap(), "v1");
+    assert!(laptop.pin_index.last_sync.is_some());
+    assert!(
+        server.pin_index.last_sync.is_some(),
+        "both stores must record last successful sync"
+    );
+    std::thread::sleep(Duration::from_millis(5));
+    write_rel(a.path(), "foo.rs", "v2");
+    clix::pin_sync(&mut server, b.path(), &mut laptop, a.path()).unwrap();
+    assert_eq!(fs::read_to_string(b.path().join("foo.rs")).unwrap(), "v2");
+    assert_eq!(fs::read_to_string(a.path().join("foo.rs")).unwrap(), "v2");
 }
 
 #[tokio::test]
@@ -99,6 +122,34 @@ async fn unknown_peer_on_pair_is_ok() {
     sync_after_pair(&store, &sk, &peer)
         .await
         .expect("401 unknown peer is the documented pair-race skip");
+}
+
+#[tokio::test]
+async fn mesh_one_side_edit_copies() {
+    let (laptop, server) = paired("laptop", "server").await;
+    write_rel(&laptop.pin_dir(), "foo.rs", "v1");
+    laptop
+        .rpc(json!({"op": "add", "tool": "true"}))
+        .await
+        .unwrap();
+    server
+        .rpc(json!({"op": "exec", "body": "laptop", "argv": ["true"]}))
+        .await
+        .unwrap();
+    assert_eq!(
+        fs::read_to_string(server.pin_dir().join("foo.rs")).unwrap(),
+        "v1"
+    );
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    write_rel(&laptop.pin_dir(), "foo.rs", "v2");
+    server
+        .rpc(json!({"op": "exec", "body": "laptop", "argv": ["true"]}))
+        .await
+        .expect("one-sided edit must copy, not conflict");
+    assert_eq!(
+        fs::read_to_string(server.pin_dir().join("foo.rs")).unwrap(),
+        "v2"
+    );
 }
 
 #[tokio::test]

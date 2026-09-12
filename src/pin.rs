@@ -37,16 +37,23 @@ pub fn pin_root(store: &Store) -> PathBuf {
 }
 
 /// Two-way copy between local pin trees. Conflict if both wrote since last sync.
-pub fn sync(store: &mut Store, local: &Path, remote: &Path, peer_name: &str) -> Result<()> {
+/// Both stores record the same last-sync timestamp on success.
+pub fn sync(
+    local_store: &mut Store,
+    local: &Path,
+    remote_store: &mut Store,
+    remote: &Path,
+) -> Result<()> {
     let local_files = scan(local)?;
     let remote_files = scan(remote)?;
-    let local_name = body_name(store);
+    let local_name = body_name(local_store);
+    let remote_name = body_name(remote_store);
     let (to_remote, to_local) = plan(
         &local_files,
         &remote_files,
-        &store.pin_index,
+        &local_store.pin_index,
         &local_name,
-        peer_name,
+        &remote_name,
     )?;
     for rel in &to_remote {
         copy_rel(local, remote, rel)?;
@@ -54,8 +61,11 @@ pub fn sync(store: &mut Store, local: &Path, remote: &Path, peer_name: &str) -> 
     for rel in &to_local {
         copy_rel(remote, local, rel)?;
     }
-    let synced = scan(local)?;
-    record_index(store, &synced)
+    let last_sync = now_millis();
+    let local_synced = scan(local)?;
+    let remote_synced = scan(remote)?;
+    record_index(local_store, &local_synced, last_sync)?;
+    record_index(remote_store, &remote_synced, last_sync)
 }
 
 pub async fn sync_with_peers(store: Arc<Mutex<Store>>) -> Result<()> {
@@ -139,10 +149,20 @@ async fn sync_with_peer_inner(
             fs::create_dir_all(parent)?;
         }
         fs::write(&dest, content)?;
+        if let Some(ms) = v.get("mtime").and_then(Value::as_u64) {
+            set_mtime(&dest, millis_to_time(ms))?;
+        }
     }
+    let last_sync = now_millis();
+    crate::mesh::call(
+        addr,
+        owner_sk,
+        json!({"op": "pin_commit", "last_sync": last_sync}),
+    )
+    .await?;
     let synced = scan(&local_root)?;
     let mut s = lock_store(store);
-    record_index(&mut s, &synced)
+    record_index(&mut s, &synced, last_sync)
 }
 
 /// After pair, 401/unknown peer is the only pin failure mapped to Ok (the
@@ -195,6 +215,19 @@ pub(crate) fn rpc_put(store: &Store, req: &Value) -> Result<Value> {
         fs::create_dir_all(parent)?;
     }
     fs::write(&dest, content)?;
+    if let Some(ms) = req.get("mtime").and_then(Value::as_u64) {
+        set_mtime(&dest, millis_to_time(ms))?;
+    }
+    Ok(json!({"ok": true}))
+}
+
+pub(crate) fn rpc_commit(store: &mut Store, req: &Value) -> Result<Value> {
+    let last_sync = req
+        .get("last_sync")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| ClixError::Io("pin_commit missing last_sync".into()))?;
+    let files = scan(&pin_root(store))?;
+    record_index(store, &files, last_sync)?;
     Ok(json!({"ok": true}))
 }
 
@@ -317,11 +350,27 @@ fn copy_rel(from: &Path, to: &Path, rel: &str) -> Result<()> {
         fs::create_dir_all(parent)?;
     }
     fs::copy(&src, &dst)?;
+    if let Ok(mtime) = fs::metadata(&src).and_then(|m| m.modified()) {
+        set_mtime(&dst, mtime)?;
+    }
     Ok(())
 }
 
-fn record_index(store: &mut Store, files: &BTreeMap<String, FileMeta>) -> Result<()> {
-    store.pin_index.last_sync = Some(now_millis());
+fn set_mtime(path: &Path, t: SystemTime) -> Result<()> {
+    fs::File::open(path)?.set_modified(t)?;
+    Ok(())
+}
+
+fn millis_to_time(ms: u64) -> SystemTime {
+    UNIX_EPOCH + Duration::from_millis(ms)
+}
+
+fn record_index(
+    store: &mut Store,
+    files: &BTreeMap<String, FileMeta>,
+    last_sync: u64,
+) -> Result<()> {
+    store.pin_index.last_sync = Some(last_sync);
     store.pin_index.hashes = files
         .iter()
         .map(|(k, v)| (k.clone(), v.hash.clone()))

@@ -311,6 +311,10 @@ async fn handle_mesh_req(
             let s = lock_store(store);
             crate::pin::rpc_put(&s, &req)
         }
+        "pin_commit" => {
+            let mut s = lock_store(store);
+            crate::pin::rpc_commit(&mut s, &req)
+        }
         "" => Err(ClixError::Usage("missing op".into())),
         other => Err(ClixError::Usage(format!("unknown op: {other}"))),
     }
