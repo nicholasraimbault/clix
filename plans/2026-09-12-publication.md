@@ -1,9 +1,10 @@
 # Public repository preparation — 2026-09-12
 
 This is publication preparation, not completion of the accepted product design.
-The repository remains private. The owner authorized sanitizing local history
-and subsequently pushing it to the private repository. No clone, release or
-public visibility change was performed.
+The repository remains private. The owner authorized sanitizing local history,
+pushing it privately, and replacing the GitHub repository to resolve retained
+identifying objects. The original repository remains a private archive.
+No clone, release or public visibility change was performed.
 
 ## Prepared
 
@@ -61,38 +62,66 @@ License verification: `cargo metadata --offline --locked --format-version 1
 --allow-dirty` included LICENSE, README.md and Cargo.toml. `git diff --check`
 passed.
 
-## Private GitHub push and retained objects
+## Original private repository and retained objects
 
 The authorized push used `--force-with-lease` against the exact old remote
-master. GitHub now has the sanitized history; the initial private push was
+master. The original repository received the sanitized history; the initial private push was
 `ad285788f23ea9288031c1ea1db154b087eeb7b6`. The repository API confirmed private
 visibility, Apache-2.0, one branch, no tags, no forks and no pull requests.
-The push started [CI run 34675613769](https://github.com/nicholasraimbault/clix/actions/runs/34675613769).
+The push started [CI run 34675613769](https://github.com/nicholasraimbault/clix-private-history-20260912/actions/runs/34675613769)
+in the original repository, retained as a private archive. Public readers may
+not be able to open that historical run; its sanitized result is captured below.
 That run passed formatting, Clippy with warnings denied, all 125 tests (zero
 failures or ignored tests), and the release build on the hosted Linux runner.
 [The captured result](evidence/2026-09-12/github-ci.json) records the exact
 revision and step outcomes. This adds hosted Linux validation, not new physical
 sleep, desktop, or two-machine proof.
 
-**The hosted privacy cleanup is incomplete.** Authenticated checks after that
+**The branch rewrite did not remove the original repository's retained data.**
+Authenticated checks after that
 push returned HTTP 200 for the old tip, the introducing commit, the old fixture
 blob, and the fixture at the old tip. The old fixture still contained 19 known
 identifying strings; the fixture at the clean tip contained zero. These were
 authorized requests against a private repository, not proof of public access.
 
-A branch rewrite did not remove those retained GitHub objects. Keep this
-repository private until they are removed, or publish from a separate repository
-whose object access is verified clean. GitHub documents Support-assisted cleanup
+A branch rewrite did not remove those retained GitHub objects. The original
+repository must remain private. GitHub documents Support-assisted cleanup
 for qualifying sensitive data; eligibility for these infrastructure identifiers
 has not been established. A private cleanup-request draft and the redacted check
 results were saved outside the checkout. No Support message has been sent.
 
+## Replacement repository
+
+On 2026-09-12, the owner authorized the replacement remedy. The original
+repository (GitHub ID `1366927226`) was renamed to
+`nicholasraimbault/clix-private-history-20260912` and archived while private.
+A new, independent private repository, `nicholasraimbault/clix` (ID
+`1366994929`), received sanitized `master` at
+`c96c8cc88e75e48e1f06fe5e9b663008a20f38f2` using
+`git push --set-upstream origin master:master` from the existing checkout.
+The API confirmed it is not a fork and has no parent or source repository.
+The About text, default branch and Actions permissions were restored; the
+README badge and canonical repository links keep the `clix` URL.
+
+Authenticated checks against the replacement returned **404 for all 25 old
+object requests**: nine rewritten commits, two identifying blobs and fourteen
+historical file reads. Both current file controls returned **200**, with zero
+known identifying strings. The [captured checks](evidence/2026-09-12/repository-object-checks.json)
+record the exact objects, paths, revision and responses. These used
+`gh api repos/nicholasraimbault/clix/git/commits/{sha}`,
+`gh api repos/nicholasraimbault/clix/git/blobs/{sha}`, and
+`gh api repos/nicholasraimbault/clix/contents/{path}?ref={sha}`.
+
+The retained-object blocker is resolved for the replacement repository within
+those checks. This is not server-wide erasure or proof against unknown secrets.
+The original private archive still returned its old identifying blobs to an
+authorized reader; it must remain private. Historical CI links point to that
+archive, and do not claim to be runs in the replacement.
+
 ## Before publication
 
-- Resolve and recheck the retained identifying objects before changing
-  visibility. The sanitized branch has already been pushed. See
-  [GitHub's history-removal guidance](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository).
-- Verify CI against the final candidate on GitHub.
+- Verify CI against the final candidate in the replacement repository. Recheck
+  disclosure if further content changes before publication.
 - Enable and verify GitHub private vulnerability reporting when the repository
   is made public. Its API returned 404 while private; no working form is claimed.
   [GitHub documents this feature for public repositories](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/configure-vulnerability-reporting/configure-for-a-repository).

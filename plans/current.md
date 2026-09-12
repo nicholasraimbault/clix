@@ -22,8 +22,11 @@ Work is on `master`. The original runtime work started at
 `6ee358297524a510bdb9e019d5b07b2054d3baeb` before the owner-authorized history
 sanitization. The repaired core is now committed as `42290b4`; publication edits
 and their checks are recorded separately. The owner subsequently authorized
-pushing the sanitized history to the private GitHub repository. No clone or
-public visibility change was performed.
+pushing the sanitized history to GitHub and replacing the repository to resolve
+retained identifying objects. The replacement remains private; the original
+repository is a separate private archive. The [publication record](2026-09-12-publication.md#replacement-repository)
+captures the verified object separation. No clone or public visibility change
+was performed.
 The measured runtime build source is
 identified by [per-file SHA-256](evidence/2026-09-11/source-sha256.json) and archive
 SHA-256 `37a99e7ae439042ac4c1b83cd04d04a7e6e34e41b8e54302dc23b76749bf29ea`.

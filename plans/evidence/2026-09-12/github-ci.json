@@ -1,6 +1,6 @@
 {
   "revision": "ad285788f23ea9288031c1ea1db154b087eeb7b6",
-  "url": "https://github.com/nicholasraimbault/clix/actions/runs/34675613769",
+  "url": "https://github.com/nicholasraimbault/clix-private-history-20260912/actions/runs/34675613769",
   "status": "completed",
   "conclusion": "success",
   "test_totals": {
@@ -49,5 +49,7 @@
       "name": "Complete job",
       "conclusion": "success"
     }
-  ]
+  ],
+  "repository_id": 1366927226,
+  "note": "Historical CI run retained in the original private repository; not a run in the replacement repository."
 }

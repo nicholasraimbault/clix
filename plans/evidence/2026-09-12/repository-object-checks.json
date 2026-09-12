@@ -1,0 +1,263 @@
+{
+  "checked_at": "2026-09-12T05:51:43.980617+00:00",
+  "repository": {
+    "id": 1366994929,
+    "private": true,
+    "fork": false,
+    "archived": false,
+    "parent_present": false,
+    "source_present": false
+  },
+  "head": "c96c8cc88e75e48e1f06fe5e9b663008a20f38f2",
+  "old_commits_checked": 9,
+  "old_blobs_checked": 2,
+  "old_contents_checked": 14,
+  "clean_contents_controls": 2,
+  "checks": [
+    {
+      "kind": "old_commit",
+      "object": "6ac62bb03969d8c857dce1b53c030dffb2dfbe14",
+      "path": null,
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "kind": "old_commit",
+      "object": "6ee358297524a510bdb9e019d5b07b2054d3baeb",
+      "path": null,
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "kind": "old_commit",
+      "object": "8f724647565bcc5954f4045c7718ddf9974b9f2f",
+      "path": null,
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "kind": "old_commit",
+      "object": "a3cd6cd26f41cf99b1f356435ba71ae0d68edc4c",
+      "path": null,
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "kind": "old_commit",
+      "object": "a84e7a870006dc045250df0b15bc5c91d80e53ac",
+      "path": null,
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "kind": "old_commit",
+      "object": "b04a7f4e6b97a5955e7f3393f77861e29a91bacb",
+      "path": null,
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "kind": "old_commit",
+      "object": "b561c820347c6d99909940e9beefb6e2dfe3a164",
+      "path": null,
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "kind": "old_commit",
+      "object": "c880825fd598ff34dcffffcdad15ed5107cf15ac",
+      "path": null,
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "kind": "old_commit",
+      "object": "ca8ff67e604cc72da105103f1c0fe9c23a36e296",
+      "path": null,
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "kind": "old_blob",
+      "object": "69f74d716fe695543540fa18b35bdfd75a9e7484",
+      "path": null,
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "kind": "old_blob",
+      "object": "24fbfa3a9c4a2b98b49b510fc5cb8e03319d25ba",
+      "path": null,
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "kind": "old_contents",
+      "object": "6ac62bb03969d8c857dce1b53c030dffb2dfbe14",
+      "path": "src/tailscale.rs",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "kind": "old_contents",
+      "object": "6ac62bb03969d8c857dce1b53c030dffb2dfbe14",
+      "path": "tests/fixtures/tailscale-status.json",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "kind": "old_contents",
+      "object": "6ee358297524a510bdb9e019d5b07b2054d3baeb",
+      "path": "src/tailscale.rs",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "kind": "old_contents",
+      "object": "6ee358297524a510bdb9e019d5b07b2054d3baeb",
+      "path": "tests/fixtures/tailscale-status.json",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "kind": "old_contents",
+      "object": "a84e7a870006dc045250df0b15bc5c91d80e53ac",
+      "path": "src/tailscale.rs",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "kind": "old_contents",
+      "object": "a84e7a870006dc045250df0b15bc5c91d80e53ac",
+      "path": "tests/fixtures/tailscale-status.json",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "kind": "old_contents",
+      "object": "b04a7f4e6b97a5955e7f3393f77861e29a91bacb",
+      "path": "src/tailscale.rs",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "kind": "old_contents",
+      "object": "b04a7f4e6b97a5955e7f3393f77861e29a91bacb",
+      "path": "tests/fixtures/tailscale-status.json",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "kind": "old_contents",
+      "object": "b561c820347c6d99909940e9beefb6e2dfe3a164",
+      "path": "src/tailscale.rs",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "kind": "old_contents",
+      "object": "b561c820347c6d99909940e9beefb6e2dfe3a164",
+      "path": "tests/fixtures/tailscale-status.json",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "kind": "old_contents",
+      "object": "c880825fd598ff34dcffffcdad15ed5107cf15ac",
+      "path": "src/tailscale.rs",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "kind": "old_contents",
+      "object": "c880825fd598ff34dcffffcdad15ed5107cf15ac",
+      "path": "tests/fixtures/tailscale-status.json",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "kind": "old_contents",
+      "object": "ca8ff67e604cc72da105103f1c0fe9c23a36e296",
+      "path": "src/tailscale.rs",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "kind": "old_contents",
+      "object": "ca8ff67e604cc72da105103f1c0fe9c23a36e296",
+      "path": "tests/fixtures/tailscale-status.json",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "kind": "clean_contents",
+      "object": "c96c8cc88e75e48e1f06fe5e9b663008a20f38f2",
+      "path": "src/tailscale.rs",
+      "status": 200,
+      "expected_status": 200,
+      "known_identifier_count": 0,
+      "passed": true
+    },
+    {
+      "kind": "clean_contents",
+      "object": "c96c8cc88e75e48e1f06fe5e9b663008a20f38f2",
+      "path": "tests/fixtures/tailscale-status.json",
+      "status": 200,
+      "expected_status": 200,
+      "known_identifier_count": 0,
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "scope": "Authenticated GETs to new private repository; no GitHub mutation or project writes. Original private archive may still expose old objects to authorized users."
+}
