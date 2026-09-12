@@ -23,10 +23,11 @@ Work is on `master`. The original runtime work started at
 sanitization. The repaired core is now committed as `42290b4`; publication edits
 and their checks are recorded separately. The owner subsequently authorized
 pushing the sanitized history to GitHub and replacing the repository to resolve
-retained identifying objects. The replacement remains private; the original
-repository is a separate private archive. The [publication record](2026-09-12-publication.md#replacement-repository)
-captures the verified object separation. No clone or public visibility change
-was performed.
+retained identifying objects, then making the replacement public on 2026-09-12.
+The original repository remains a separate private archive. The
+[publication record](2026-09-12-publication.md#publication) captures the visibility
+change, verified object separation and enabled private vulnerability reporting.
+No clone was performed.
 The measured runtime build source is
 identified by [per-file SHA-256](evidence/2026-09-11/source-sha256.json) and archive
 SHA-256 `37a99e7ae439042ac4c1b83cd04d04a7e6e34e41b8e54302dc23b76749bf29ea`.
@@ -68,6 +69,13 @@ verified local status/add/hands/remove still work.
 
 **Still incomplete or unproved:**
 
+- A [disposable-state review at `6957936`](evidence/2026-09-12/owner-control-review.json)
+  reproduced two owner-control defects in the unchanged request/grant modules.
+  Terminal `allow` selects the latest pending request, so a new arrival can
+  change the target after the owner reads `pending`. Adding by full executable
+  path and removing that same path fails to revoke; removal by the stored tool
+  name works. These findings remain unfixed. The harness called the production
+  functions directly; it did not run a daemon or execute a granted tool.
 - The laptop owner account remains trusted. The same-UID limitation still
   exists, but isolating an agent from its server development account is outside
   the owner's chosen scope. Do not claim protection against an agent already

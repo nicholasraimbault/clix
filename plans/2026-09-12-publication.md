@@ -1,10 +1,11 @@
 # Public repository preparation — 2026-09-12
 
 This is publication preparation, not completion of the accepted product design.
-The repository remains private. The owner authorized sanitizing local history,
-pushing it privately, and replacing the GitHub repository to resolve retained
-identifying objects. The original repository remains a private archive.
-No clone, release or public visibility change was performed.
+The replacement repository is public. The owner authorized sanitizing local
+history, pushing it privately, replacing the GitHub repository to resolve
+retained identifying objects, and then making the replacement public.
+The original repository remains a private archive. No clone or release was
+performed.
 
 ## Prepared
 
@@ -118,14 +119,29 @@ The original private archive still returned its old identifying blobs to an
 authorized reader; it must remain private. Historical CI links point to that
 archive, and do not claim to be runs in the replacement.
 
-## Before publication
+## Publication
 
-- Verify CI against the final candidate in the replacement repository. Recheck
-  disclosure if further content changes before publication.
-- Enable and verify GitHub private vulnerability reporting when the repository
-  is made public. Its API returned 404 while private; no working form is claimed.
-  [GitHub documents this feature for public repositories](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/configure-vulnerability-reporting/configure-for-a-repository).
+The owner authorized publication on 2026-09-12. At `06:07:15 UTC`, GitHub's
+repository API confirmed public visibility for replacement ID `1366994929`
+after `gh api --method PATCH repos/nicholasraimbault/clix -F private=false`.
+The published revision was `6957936f56a88627eba734161be186b8c5483022`.
+[CI run 34676803667](https://github.com/nicholasraimbault/clix/actions/runs/34676803667)
+passed formatting, Clippy, all 125 tests (zero failures or ignored tests), and
+the release build at that exact revision.
 
-The remaining product work is in [current work](current.md). Making the source
-public would not establish physical sleep, desktop UX, complete shared history,
+`gh api --method PUT repos/nicholasraimbault/clix/private-vulnerability-reporting`
+enabled private vulnerability reporting. A subsequent GET to that endpoint
+returned `{"enabled":true}`. The original archived repository remains private.
+
+The [anonymous publication checks](evidence/2026-09-12/public-visibility-checks.json)
+repeated all 25 historical-object requests without credentials: all returned
+404. The two clean file controls returned 200 with zero known identifying
+strings. The public README matched the committed bytes, and the CI badge was
+passing. The archive's page and API returned 404 without authentication;
+authenticated metadata still confirmed private and archived status. Supplemental
+lookups through `/commits/{sha}` returned 422 for the missing old commits;
+these are recorded separately from the `/git/commits/{sha}` checks.
+
+The remaining product work is in [current work](current.md). Publication does
+not establish physical sleep, desktop UX, complete shared history,
 ordinary owner recovery or operating longevity.

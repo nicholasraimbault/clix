@@ -1,0 +1,524 @@
+{
+  "checked_at": "2026-09-12T06:10:15.912322+00:00",
+  "scope": "Anonymous public HTTP GETs; authenticated read-only archive metadata check. No remote mutation or project writes. This checks named historical objects, not every possible GitHub object or cache.",
+  "repository": "nicholasraimbault/clix",
+  "repository_id": 1366994929,
+  "revision": "6957936f56a88627eba734161be186b8c5483022",
+  "repository_check": {
+    "endpoint": "https://api.github.com/repos/nicholasraimbault/clix",
+    "authentication": "none",
+    "status": 200,
+    "id": 1366994929,
+    "private": false,
+    "archived": false,
+    "default_branch": "master",
+    "passed": true
+  },
+  "head_check": {
+    "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/commits/master",
+    "authentication": "none",
+    "status": 200,
+    "revision": "6957936f56a88627eba734161be186b8c5483022",
+    "expected_revision": "6957936f56a88627eba734161be186b8c5483022",
+    "passed": true
+  },
+  "repo_page": {
+    "endpoint": "https://github.com/nicholasraimbault/clix",
+    "authentication": "none",
+    "status": 200,
+    "contains_readme": true,
+    "known_identifier_count": 0,
+    "passed": true
+  },
+  "readme_raw": {
+    "endpoint": "https://raw.githubusercontent.com/nicholasraimbault/clix/6957936f56a88627eba734161be186b8c5483022/README.md",
+    "authentication": "none",
+    "status": 200,
+    "sha256": "f86eb28bddb2112a6b2cc4cd0c78da2b11f915ca926696315f6eab4750bccbb0",
+    "matches_committed_file": true,
+    "known_identifier_count": 0,
+    "passed": true
+  },
+  "readme_page": {
+    "endpoint": "https://github.com/nicholasraimbault/clix/blob/6957936f56a88627eba734161be186b8c5483022/README.md",
+    "authentication": "none",
+    "status": 200,
+    "known_identifier_count": 0,
+    "passed": true
+  },
+  "ci_badge": {
+    "endpoint": "https://github.com/nicholasraimbault/clix/actions/workflows/ci.yml/badge.svg?branch=master",
+    "authentication": "none",
+    "status": 200,
+    "state": "passing",
+    "readme_references_badge": true,
+    "passed": true
+  },
+  "source_checks_file": "plans/evidence/2026-09-12/repository-object-checks.json",
+  "source_checks_sha256": "adb7978bf20ca9ee6ff2da1f4f77d6314bd3336d1374313bc3eb6c8cd622c26f",
+  "old_object_checks": 25,
+  "clean_contents_controls": 2,
+  "checks": [
+    {
+      "source_check_index": 0,
+      "kind": "old_commit",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/git/commits/<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "source_check_index": 1,
+      "kind": "old_commit",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/git/commits/<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "source_check_index": 2,
+      "kind": "old_commit",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/git/commits/<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "source_check_index": 3,
+      "kind": "old_commit",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/git/commits/<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "source_check_index": 4,
+      "kind": "old_commit",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/git/commits/<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "source_check_index": 5,
+      "kind": "old_commit",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/git/commits/<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "source_check_index": 6,
+      "kind": "old_commit",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/git/commits/<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "source_check_index": 7,
+      "kind": "old_commit",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/git/commits/<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "source_check_index": 8,
+      "kind": "old_commit",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/git/commits/<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "source_check_index": 9,
+      "kind": "old_blob",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/git/blobs/<old-blob>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "source_check_index": 10,
+      "kind": "old_blob",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/git/blobs/<old-blob>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "source_check_index": 11,
+      "kind": "old_contents",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/contents/<old-path>?ref=<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "source_check_index": 12,
+      "kind": "old_contents",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/contents/<old-path>?ref=<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "source_check_index": 13,
+      "kind": "old_contents",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/contents/<old-path>?ref=<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "source_check_index": 14,
+      "kind": "old_contents",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/contents/<old-path>?ref=<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "source_check_index": 15,
+      "kind": "old_contents",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/contents/<old-path>?ref=<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "source_check_index": 16,
+      "kind": "old_contents",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/contents/<old-path>?ref=<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "source_check_index": 17,
+      "kind": "old_contents",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/contents/<old-path>?ref=<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "source_check_index": 18,
+      "kind": "old_contents",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/contents/<old-path>?ref=<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "source_check_index": 19,
+      "kind": "old_contents",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/contents/<old-path>?ref=<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "source_check_index": 20,
+      "kind": "old_contents",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/contents/<old-path>?ref=<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "source_check_index": 21,
+      "kind": "old_contents",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/contents/<old-path>?ref=<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "source_check_index": 22,
+      "kind": "old_contents",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/contents/<old-path>?ref=<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "source_check_index": 23,
+      "kind": "old_contents",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/contents/<old-path>?ref=<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "source_check_index": 24,
+      "kind": "old_contents",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/contents/<old-path>?ref=<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "known_identifier_count": null,
+      "passed": true
+    },
+    {
+      "source_check_index": 25,
+      "kind": "clean_contents",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/contents/src/tailscale.rs?ref=c96c8cc88e75e48e1f06fe5e9b663008a20f38f2",
+      "method": "GET",
+      "authentication": "none",
+      "status": 200,
+      "expected_status": 200,
+      "known_identifier_count": 0,
+      "passed": true,
+      "revision": "c96c8cc88e75e48e1f06fe5e9b663008a20f38f2"
+    },
+    {
+      "source_check_index": 26,
+      "kind": "clean_contents",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/contents/tests/fixtures/tailscale-status.json?ref=c96c8cc88e75e48e1f06fe5e9b663008a20f38f2",
+      "method": "GET",
+      "authentication": "none",
+      "status": 200,
+      "expected_status": 200,
+      "known_identifier_count": 0,
+      "passed": true,
+      "revision": "c96c8cc88e75e48e1f06fe5e9b663008a20f38f2"
+    }
+  ],
+  "known_identifier_scan": {
+    "inputs_available": true,
+    "patterns_checked": 26,
+    "matching": "case-insensitive exact substring over decoded positive contents and public README/pages",
+    "private_values_recorded": false
+  },
+  "archive_authenticated": {
+    "command": "gh api repos/<private-archive>",
+    "authentication": "existing gh session",
+    "exit_code": 0,
+    "private": true,
+    "archived": true,
+    "matches_original_archive_id": true,
+    "passed": true
+  },
+  "archive_anonymous": [
+    {
+      "endpoint": "https://github.com/<private-archive>",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "endpoint": "https://api.github.com/repos/<private-archive>",
+      "authentication": "none",
+      "status": 404,
+      "expected_status": 404,
+      "passed": true
+    }
+  ],
+  "redaction": "Private archive identity, historical object IDs and historical paths are represented by placeholders; source_check_index maps each old-object check to the named source evidence file. No identifier values or HTTP response bodies are included.",
+  "passed": true,
+  "supplemental_repository_commit_lookups": [
+    {
+      "source_check_index": 0,
+      "kind": "old_commit",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/commits/<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 422,
+      "expected_status": 422,
+      "known_identifier_count": null,
+      "passed": true,
+      "interpretation": "Repository commit lookup returned missing/invalid commit status; no commit body returned. Exact Git object route checked separately."
+    },
+    {
+      "source_check_index": 1,
+      "kind": "old_commit",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/commits/<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 422,
+      "expected_status": 422,
+      "known_identifier_count": null,
+      "passed": true,
+      "interpretation": "Repository commit lookup returned missing/invalid commit status; no commit body returned. Exact Git object route checked separately."
+    },
+    {
+      "source_check_index": 2,
+      "kind": "old_commit",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/commits/<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 422,
+      "expected_status": 422,
+      "known_identifier_count": null,
+      "passed": true,
+      "interpretation": "Repository commit lookup returned missing/invalid commit status; no commit body returned. Exact Git object route checked separately."
+    },
+    {
+      "source_check_index": 3,
+      "kind": "old_commit",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/commits/<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 422,
+      "expected_status": 422,
+      "known_identifier_count": null,
+      "passed": true,
+      "interpretation": "Repository commit lookup returned missing/invalid commit status; no commit body returned. Exact Git object route checked separately."
+    },
+    {
+      "source_check_index": 4,
+      "kind": "old_commit",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/commits/<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 422,
+      "expected_status": 422,
+      "known_identifier_count": null,
+      "passed": true,
+      "interpretation": "Repository commit lookup returned missing/invalid commit status; no commit body returned. Exact Git object route checked separately."
+    },
+    {
+      "source_check_index": 5,
+      "kind": "old_commit",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/commits/<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 422,
+      "expected_status": 422,
+      "known_identifier_count": null,
+      "passed": true,
+      "interpretation": "Repository commit lookup returned missing/invalid commit status; no commit body returned. Exact Git object route checked separately."
+    },
+    {
+      "source_check_index": 6,
+      "kind": "old_commit",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/commits/<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 422,
+      "expected_status": 422,
+      "known_identifier_count": null,
+      "passed": true,
+      "interpretation": "Repository commit lookup returned missing/invalid commit status; no commit body returned. Exact Git object route checked separately."
+    },
+    {
+      "source_check_index": 7,
+      "kind": "old_commit",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/commits/<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 422,
+      "expected_status": 422,
+      "known_identifier_count": null,
+      "passed": true,
+      "interpretation": "Repository commit lookup returned missing/invalid commit status; no commit body returned. Exact Git object route checked separately."
+    },
+    {
+      "source_check_index": 8,
+      "kind": "old_commit",
+      "endpoint": "https://api.github.com/repos/nicholasraimbault/clix/commits/<old-commit>",
+      "method": "GET",
+      "authentication": "none",
+      "status": 422,
+      "expected_status": 422,
+      "known_identifier_count": null,
+      "passed": true,
+      "interpretation": "Repository commit lookup returned missing/invalid commit status; no commit body returned. Exact Git object route checked separately."
+    }
+  ],
+  "commands": [
+    {
+      "command": "Python 3 urllib.request.urlopen(urllib.request.Request(endpoint, headers=headers), timeout=30)",
+      "method": "GET",
+      "authorization_header": false,
+      "headers": {
+        "User-Agent": "Clix-public-visibility-check",
+        "Accept": "application/vnd.github+json for API requests; */* otherwise"
+      }
+    },
+    {
+      "command": "gh api repos/<private-archive>",
+      "purpose": "Read authenticated archive metadata without retaining private repository identifiers"
+    },
+    {
+      "command": "git show 6957936f56a88627eba734161be186b8c5483022:README.md",
+      "purpose": "Compare anonymously fetched README bytes with the exact committed file"
+    }
+  ]
+}

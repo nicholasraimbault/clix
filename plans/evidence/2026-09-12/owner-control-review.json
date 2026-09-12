@@ -1,0 +1,21 @@
+{
+  "reviewed_revision": "6957936f56a88627eba734161be186b8c5483022",
+  "source_equals_reviewed_revision_before_and_after": true,
+  "library_sha256": "00ae862c8693f654db87bfc8dfed555453026c08704469bb2ea0f86e37fb7963",
+  "harness_source_sha256": "bd976fe66a0491dbc642ee3493b07ab8d35d22c69765e5ae9294cd499baa4079",
+  "harness_binary_sha256": "61eb626565d002a50e0389a52345f0e93af315dc8ab78a956a2cb1eb7dc2391b",
+  "result_sha256": "8c01e532f73f89d3b3140a0a5dc32c6bf99f709c180c5070322c2345cdbad2ef",
+  "scope": "Synthetic stores only; unchanged original modules compiled into an external include harness, using dependency artifacts from the locked library build. No daemon, listener, mesh, child tool execution, or real grants.",
+  "build_command": "cargo build --lib --locked --message-format=json",
+  "harness_command": "rustc compiled an external harness including the unchanged original modules; complete invocation and redacted harness driver retained with the private review artifacts.",
+  "observed_output": [
+    "Inspected pending A: requester-a requests /usr/bin/true",
+    "Then pending B arrived: requester-b requests /usr/bin/false",
+    "allow(default once) granted B: tool=false, allowed=requester-b, once=true",
+    "A remains pending; persisted state agrees. Request-targeting finding reproduced.",
+    "add(/usr/bin/true) stored tool=true; remove(/usr/bin/true) returned: /usr/bin/true is not added on review-owner",
+    "The true grant remains usable according to grant::check; no binary was executed.",
+    "remove(true) succeeded. Path-key inconsistency reproduced."
+  ],
+  "status": "Both findings reproduced; neither fixed by publication work."
+}
