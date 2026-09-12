@@ -12,6 +12,7 @@ use crate::error::{ClixError, Result};
 use crate::exec::{exec_checked, exec_with_job};
 use crate::job;
 use crate::pair;
+use crate::request;
 use crate::store::Store;
 use crate::types::{Job, Peer};
 
@@ -279,10 +280,21 @@ fn handle_mesh_req(
         }
         "job_poll" => rpc_job_poll(store, handle, peer, &req),
         "job_result" => rpc_job_result(store, handle, peer, &req),
-        "request" => Ok(json!({"ok": true})),
+        "request" => rpc_request(store, peer, &req),
         "" => Err(ClixError::Usage("missing op".into())),
         other => Err(ClixError::Usage(format!("unknown op: {other}"))),
     }
+}
+
+fn rpc_request(store: &Arc<Mutex<Store>>, peer: &Peer, req: &Value) -> Result<Value> {
+    let tool = req.get("tool").and_then(Value::as_str).unwrap_or("");
+    if tool.is_empty() {
+        return Ok(json!({"ok": true}));
+    }
+    let mut s = lock_store(store);
+    let r = request::upsert(&mut s, peer.name.clone(), tool)?;
+    s.save()?;
+    Ok(json!({"ok": true, "request": r}))
 }
 
 fn rpc_job_poll(

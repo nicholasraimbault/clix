@@ -15,6 +15,7 @@ use crate::grant;
 use crate::job;
 use crate::mesh::{self, MeshHandle};
 use crate::pair::{self, hostname};
+use crate::request;
 use crate::store::Store;
 use crate::types::{BodyId, Job, JobStatus, Schedule};
 
@@ -129,6 +130,10 @@ async fn handle_rpc(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: Value) ->
         "pair_start" => rpc_pair_start(store, mesh, &req),
         "pair_join" => rpc_pair_join(store, mesh, &req).await,
         "pair_await" => rpc_pair_await(mesh).await,
+        "request" => rpc_request(store, &req).await,
+        "pending" => rpc_pending(store),
+        "allow" => rpc_allow(store, &req),
+        "deny" => rpc_deny(store),
         other => Err(ClixError::Usage(format!("unknown op: {other}"))),
     }
 }
@@ -232,6 +237,53 @@ async fn rpc_exec<W: AsyncWriteExt + Unpin>(
         }
         Err(e) => Err(e),
     }
+}
+
+async fn rpc_request(store: &Arc<Mutex<Store>>, req: &Value) -> Result<Value> {
+    let tool = req
+        .get("tool")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| ClixError::Usage("usage: clix request <body> <tool>".into()))?;
+    let body = req.get("body").and_then(Value::as_str).unwrap_or("");
+    let (this, dest, sk) = {
+        let store = lock_store(store);
+        let dest = store.peers.iter().find(|p| p.name.0 == body).cloned();
+        (store.body_name.clone(), dest, store.owner_sk.clone())
+    };
+    if body.is_empty() || body == this {
+        let mut store = lock_store(store);
+        let r = request::upsert(&mut store, BodyId(this), tool)?;
+        store.save()?;
+        return Ok(json!({"ok": true, "request": r}));
+    }
+    let Some(addr) = dest.and_then(|p| p.addr) else {
+        return Err(ClixError::Usage(format!("{body} is not this body")));
+    };
+    mesh::call(&addr, &sk, json!({"op": "request", "tool": tool})).await
+}
+
+fn rpc_pending(store: &Arc<Mutex<Store>>) -> Result<Value> {
+    let store = lock_store(store);
+    Ok(json!({"ok": true, "requests": request::pending(&store)}))
+}
+
+fn rpc_allow(store: &Arc<Mutex<Store>>, req: &Value) -> Result<Value> {
+    let allow = json_string_list(req.get("allow"));
+    let once = req.get("once").and_then(Value::as_bool).unwrap_or(true);
+    let until = rpc_until(req)?;
+    let schedule = rpc_schedule(req)?;
+    let mut store = lock_store(store);
+    let grant = request::allow(&mut store, &allow, once, until, schedule)?;
+    store.save()?;
+    Ok(json!({"ok": true, "tool": grant.tool, "once": grant.once}))
+}
+
+fn rpc_deny(store: &Arc<Mutex<Store>>) -> Result<Value> {
+    let mut store = lock_store(store);
+    request::deny(&mut store)?;
+    store.save()?;
+    Ok(json!({"ok": true}))
 }
 
 fn rpc_log(store: &Arc<Mutex<Store>>) -> Result<Value> {
@@ -462,8 +514,34 @@ pub(crate) fn rpc_from_cmd(cmd: &Cmd) -> Result<Value> {
         },
         Cmd::Log => Ok(json!({"op": "log"})),
         Cmd::Pending => Ok(json!({"op": "pending"})),
-        Cmd::Allow => Ok(json!({"op": "allow"})),
+        Cmd::Allow {
+            allow,
+            once,
+            for_dur,
+            until,
+            days,
+            dates,
+            from,
+            to,
+            weekdays,
+        } => Ok(json!({
+            "op": "allow",
+            "allow": allow,
+            "once": once,
+            "for_secs": for_dur.map(|d| d.as_secs()),
+            "until": until.map(system_time_secs),
+            "days": days,
+            "dates": dates,
+            "from": from,
+            "to": to,
+            "weekdays": weekdays,
+        })),
         Cmd::Deny => Ok(json!({"op": "deny"})),
+        Cmd::Request { body, tool } => Ok(json!({
+            "op": "request",
+            "body": body,
+            "tool": tool,
+        })),
         Cmd::Status => Ok(json!({"op": "status"})),
         Cmd::Daemon | Cmd::Install => Err(ClixError::Usage("not a client command".into())),
     }
@@ -487,6 +565,16 @@ pub(crate) fn emit_rpc(cmd: &Cmd, v: &Value) -> Result<()> {
                     if let Some(s) = line.as_str() {
                         println!("{s}");
                     }
+                }
+            }
+            Ok(())
+        }
+        Cmd::Pending => {
+            if let Some(arr) = v.get("requests").and_then(Value::as_array) {
+                for r in arr {
+                    let from = r.get("from").and_then(Value::as_str).unwrap_or("?");
+                    let tool = r.get("tool").and_then(Value::as_str).unwrap_or("?");
+                    println!("{from} wants {tool}");
                 }
             }
             Ok(())

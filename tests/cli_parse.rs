@@ -242,10 +242,13 @@ fn reserved_commands() {
         parse_argv(&["clix".into(), "pending".into()]).unwrap(),
         Cmd::Pending
     ));
-    assert!(matches!(
-        parse_argv(&["clix".into(), "allow".into()]).unwrap(),
-        Cmd::Allow
-    ));
+    match parse_argv(&["clix".into(), "allow".into()]).unwrap() {
+        Cmd::Allow { once, allow, .. } => {
+            assert!(once, "default allow is --once");
+            assert!(allow.is_empty());
+        }
+        other => panic!("expected allow, got {other:?}"),
+    }
     assert!(matches!(
         parse_argv(&["clix".into(), "deny".into()]).unwrap(),
         Cmd::Deny
@@ -360,20 +363,43 @@ fn exec_without_cmd_is_usage() {
 }
 
 #[test]
-fn request_is_reserved_not_a_body() {
-    let err = parse_argv(&[
+fn request_is_body_and_tool() {
+    match parse_argv(&[
         "clix".into(),
         "request".into(),
         "laptop".into(),
         "adb".into(),
     ])
-    .unwrap_err();
+    .unwrap()
+    {
+        Cmd::Request { body, tool } => {
+            assert_eq!(body, "laptop");
+            assert_eq!(tool, "adb");
+        }
+        other => panic!("expected request, got {other:?}"),
+    }
+}
+
+#[test]
+fn request_without_tool_is_usage() {
+    let err = parse_argv(&["clix".into(), "request".into(), "laptop".into()]).unwrap_err();
     match err {
         ClixError::Usage(s) => {
             assert!(!s.is_empty());
             assert!(s.len() < 80, "usage string should be short: {s}");
         }
         other => panic!("expected usage, got {other}"),
+    }
+}
+
+#[test]
+fn allow_for_is_not_once() {
+    match parse_argv(&["clix".into(), "allow".into(), "--for".into(), "2h".into()]).unwrap() {
+        Cmd::Allow { once, for_dur, .. } => {
+            assert!(!once);
+            assert_eq!(for_dur, Some(Duration::from_secs(2 * 3600)));
+        }
+        other => panic!("expected allow, got {other:?}"),
     }
 }
 

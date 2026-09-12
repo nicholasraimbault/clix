@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 use crate::error::{ClixError, Result};
 use crate::grant::{self, consume_once};
 use crate::job;
+use crate::request;
 use crate::store::Store;
 use crate::types::{BodyId, Grant, Job, JobStatus};
 
@@ -71,6 +72,9 @@ pub(crate) fn exec_with_job(
             }
             Err(e) => {
                 let reason = e.to_string();
+                if let Some(tool) = argv.first().filter(|t| !t.is_empty()) {
+                    let _ = request::upsert(&mut s, from.clone(), tool);
+                }
                 let job = Job {
                     id,
                     body,

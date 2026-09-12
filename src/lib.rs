@@ -8,6 +8,7 @@ mod local;
 mod mesh;
 mod pair;
 mod paths;
+mod request;
 mod store;
 mod types;
 

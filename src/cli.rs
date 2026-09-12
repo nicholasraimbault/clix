@@ -34,8 +34,22 @@ pub enum Cmd {
     },
     Log,
     Pending,
-    Allow,
+    Allow {
+        allow: Vec<String>,
+        once: bool,
+        for_dur: Option<Duration>,
+        until: Option<SystemTime>,
+        days: Vec<String>,
+        dates: Vec<u8>,
+        from: Option<String>,
+        to: Option<String>,
+        weekdays: bool,
+    },
     Deny,
+    Request {
+        body: String,
+        tool: String,
+    },
     Daemon,
     Install,
     Status,
@@ -55,26 +69,8 @@ struct Cli {
 enum Commands {
     Add {
         tool: Option<String>,
-        #[arg(long = "allow", value_name = "BODY")]
-        allow: Vec<String>,
-        #[arg(long = "server")]
-        server: bool,
-        #[arg(long = "once")]
-        once: bool,
-        #[arg(long = "for", value_name = "DUR")]
-        for_dur: Option<String>,
-        #[arg(long = "until", value_name = "TIME")]
-        until: Option<String>,
-        #[arg(long = "days", value_name = "DAYS", value_delimiter = ',')]
-        days: Vec<String>,
-        #[arg(long = "dates", value_name = "DATES", value_delimiter = ',')]
-        dates: Vec<String>,
-        #[arg(long = "from", value_name = "TIME")]
-        from: Option<String>,
-        #[arg(long = "to", value_name = "TIME")]
-        to: Option<String>,
-        #[arg(long = "weekdays")]
-        weekdays: bool,
+        #[command(flatten)]
+        grant: GrantCli,
     },
     Pair {
         phrase: Option<String>,
@@ -87,8 +83,15 @@ enum Commands {
     },
     Log,
     Pending,
-    Allow,
+    Allow {
+        #[command(flatten)]
+        grant: GrantCli,
+    },
     Deny,
+    Request {
+        body: Option<String>,
+        tool: Option<String>,
+    },
     Daemon,
     Install,
     Status,
@@ -96,58 +99,48 @@ enum Commands {
     External(Vec<String>),
 }
 
+#[derive(clap::Args, Debug)]
+struct GrantCli {
+    #[arg(long = "allow", value_name = "BODY")]
+    allow: Vec<String>,
+    #[arg(long = "server")]
+    server: bool,
+    #[arg(long = "once")]
+    once: bool,
+    #[arg(long = "for", value_name = "DUR")]
+    for_dur: Option<String>,
+    #[arg(long = "until", value_name = "TIME")]
+    until: Option<String>,
+    #[arg(long = "days", value_name = "DAYS", value_delimiter = ',')]
+    days: Vec<String>,
+    #[arg(long = "dates", value_name = "DATES", value_delimiter = ',')]
+    dates: Vec<String>,
+    #[arg(long = "from", value_name = "TIME")]
+    from: Option<String>,
+    #[arg(long = "to", value_name = "TIME")]
+    to: Option<String>,
+    #[arg(long = "weekdays")]
+    weekdays: bool,
+}
+
 pub fn parse_argv(argv: &[String]) -> Result<Cmd> {
     let cli = Cli::try_parse_from(argv).map_err(|e| ClixError::Usage(e.to_string()))?;
     match cli.command {
         None => Err(ClixError::Usage("usage: clix <command>".into())),
-        Some(Commands::Add {
-            tool,
-            mut allow,
-            server,
-            once,
-            for_dur,
-            until,
-            days,
-            dates,
-            from,
-            to,
-            weekdays,
-        }) => {
+        Some(Commands::Add { tool, grant }) => {
             let tool = tool.ok_or_else(|| ClixError::Usage("usage: clix add <tool>".into()))?;
-            if server {
-                allow.push("server".into());
-            }
-            if once && (!days.is_empty() || !dates.is_empty() || weekdays) {
-                return Err(ClixError::Usage(
-                    "use --once or a schedule, not both".into(),
-                ));
-            }
-            if weekdays && !days.is_empty() {
-                return Err(ClixError::Usage(
-                    "use --days or --weekdays, not both".into(),
-                ));
-            }
-            let days = validate_days(days)?;
-            let dates = parse_dates(dates)?;
-            if let Some(ref t) = from {
-                validate_ampm(t)?;
-            }
-            if let Some(ref t) = to {
-                validate_ampm(t)?;
-            }
-            let for_dur = for_dur.map(|s| parse_duration(&s)).transpose()?;
-            let until = until.map(|s| parse_until(&s)).transpose()?;
+            let g = parse_grant_cli(grant, false)?;
             Ok(Cmd::Add {
                 tool,
-                allow,
-                once,
-                for_dur,
-                until,
-                days,
-                dates,
-                from,
-                to,
-                weekdays,
+                allow: g.allow,
+                once: g.once,
+                for_dur: g.for_dur,
+                until: g.until,
+                days: g.days,
+                dates: g.dates,
+                from: g.from,
+                to: g.to,
+                weekdays: g.weekdays,
             })
         }
         Some(Commands::Pair { phrase, name }) => Ok(Cmd::Pair { phrase, name }),
@@ -158,8 +151,28 @@ pub fn parse_argv(argv: &[String]) -> Result<Cmd> {
         }
         Some(Commands::Log) => Ok(Cmd::Log),
         Some(Commands::Pending) => Ok(Cmd::Pending),
-        Some(Commands::Allow) => Ok(Cmd::Allow),
+        Some(Commands::Allow { grant }) => {
+            let g = parse_grant_cli(grant, true)?;
+            Ok(Cmd::Allow {
+                allow: g.allow,
+                once: g.once,
+                for_dur: g.for_dur,
+                until: g.until,
+                days: g.days,
+                dates: g.dates,
+                from: g.from,
+                to: g.to,
+                weekdays: g.weekdays,
+            })
+        }
         Some(Commands::Deny) => Ok(Cmd::Deny),
+        Some(Commands::Request { body, tool }) => {
+            let body =
+                body.ok_or_else(|| ClixError::Usage("usage: clix request <body> <tool>".into()))?;
+            let tool =
+                tool.ok_or_else(|| ClixError::Usage("usage: clix request <body> <tool>".into()))?;
+            Ok(Cmd::Request { body, tool })
+        }
         Some(Commands::Daemon) => Ok(Cmd::Daemon),
         Some(Commands::Install) => Ok(Cmd::Install),
         Some(Commands::Status) => Ok(Cmd::Status),
@@ -183,6 +196,75 @@ pub fn parse_argv(argv: &[String]) -> Result<Cmd> {
             })
         }
     }
+}
+
+struct GrantNarrow {
+    allow: Vec<String>,
+    once: bool,
+    for_dur: Option<Duration>,
+    until: Option<SystemTime>,
+    days: Vec<String>,
+    dates: Vec<u8>,
+    from: Option<String>,
+    to: Option<String>,
+    weekdays: bool,
+}
+
+fn parse_grant_cli(grant: GrantCli, default_once: bool) -> Result<GrantNarrow> {
+    let GrantCli {
+        mut allow,
+        server,
+        once,
+        for_dur,
+        until,
+        days,
+        dates,
+        from,
+        to,
+        weekdays,
+    } = grant;
+    if server {
+        allow.push("server".into());
+    }
+    if once && (!days.is_empty() || !dates.is_empty() || weekdays) {
+        return Err(ClixError::Usage(
+            "use --once or a schedule, not both".into(),
+        ));
+    }
+    if weekdays && !days.is_empty() {
+        return Err(ClixError::Usage(
+            "use --days or --weekdays, not both".into(),
+        ));
+    }
+    let widening = for_dur.is_some()
+        || until.is_some()
+        || !days.is_empty()
+        || !dates.is_empty()
+        || weekdays
+        || from.is_some()
+        || to.is_some();
+    let once = once || (default_once && !widening);
+    let days = validate_days(days)?;
+    let dates = parse_dates(dates)?;
+    if let Some(ref t) = from {
+        validate_ampm(t)?;
+    }
+    if let Some(ref t) = to {
+        validate_ampm(t)?;
+    }
+    let for_dur = for_dur.map(|s| parse_duration(&s)).transpose()?;
+    let until = until.map(|s| parse_until(&s)).transpose()?;
+    Ok(GrantNarrow {
+        allow,
+        once,
+        for_dur,
+        until,
+        days,
+        dates,
+        from,
+        to,
+        weekdays,
+    })
 }
 
 /// `--no-wait` before the body or between body and tool. Not stolen from tool argv.
