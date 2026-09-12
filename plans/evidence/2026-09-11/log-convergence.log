@@ -1,0 +1,8 @@
+# Pseudonymized runtime record; see README.md in this directory.
+Both machines have the same 5 durable jobs, with identical identity, argv, status, stdout and stderr.
+5cb3551d-8fa4-4611-859b-738e35a44b26 server -> laptop ['adb', 'devices'] {'Denied': {'reason': 'adb is not added on laptop'}}
+09b52dff-3cca-4641-b51f-6622103ff537 server -> laptop ['adb', 'devices'] {'Done': {'exit': 0}}
+61cc0092-835e-4d1e-b73d-da4e5ba6d959 server -> laptop ['bash'] {'Denied': {'reason': 'bash is not added on laptop'}}
+386d7775-9111-4b2c-a499-0fbfc5ece947 server -> laptop ['adb', 'devices'] {'Done': {'exit': 0}}
+7cb366a0-d0f4-4923-bd58-66107d3726bc server -> laptop ['adb', 'devices'] {'Done': {'exit': 0}}
+The first check in two-machine.log ran before the origin polled completion. That immediate-equality assertion failed; this check proves eventual convergence only.

@@ -1,0 +1,70 @@
+# Pseudonymized runtime record; see README.md in this directory.
+$ /home/owner/.local/bin/clix status
+laptop
+mesh: 100.64.0.10:7421
+paired: server (100.64.0.20:7421)
+exit: 0
+$ ssh server '/home/owner/.local/bin/clix status'
+server
+mesh: 100.64.0.20:7421
+paired: laptop (100.64.0.10:7421)
+exit: 0
+$ ssh server '/home/owner/.local/bin/clix laptop adb devices'
+List of devices attached
+PHONE_SERIAL_REDACTED	device
+
+exit: 0
+laptop grant: [{"allow_from": ["server"], "binary": "/usr/bin/adb", "once": false, "reservation": null, "schedule": null, "tool": "adb", "until": null}]
+$ /home/owner/.local/bin/clix pending
+exit: 0
+$ ssh server '/home/owner/.local/bin/clix hands'
+exit: 0
+$ ssh server '/home/owner/.local/bin/clix pending'
+exit: 0
+$ systemctl --user is-active clix.service
+active
+exit: 0
+$ ssh server 'systemctl --user is-active clix.service'
+active
+exit: 0
+$ stat -c '%a %n' /home/owner/.local/state/clix /home/owner/.local/state/clix/state.json /run/user/1000/clix.sock
+700 /home/owner/.local/state/clix
+600 /home/owner/.local/state/clix/state.json
+600 /run/user/1000/clix.sock
+exit: 0
+$ ssh server 'stat -c "%a %n" /home/owner/.local/state/clix /home/owner/.local/state/clix/state.json /run/user/1000/clix.sock'
+700 /home/owner/.local/state/clix
+600 /home/owner/.local/state/clix/state.json
+600 /run/user/1000/clix.sock
+exit: 0
+$ sha256sum /home/owner/.local/bin/clix
+25c7fedad89cbcb033618ac424d8cc4c455179bd62b1ddce0f359f1306a8f560  /home/owner/.local/bin/clix
+exit: 0
+$ ssh server 'sha256sum /home/owner/.local/bin/clix'
+bf8dfb239facfc74428633522c5269040e587dca86691dc806069692c20dc26d  /home/owner/.local/bin/clix
+exit: 0
+$ /home/owner/.local/bin/clix log
+"5cb3551d-8fa4-4611-859b-738e35a44b26"  server ["adb", "devices"] on laptop  denied: adb is not added on laptop
+"09b52dff-3cca-4641-b51f-6622103ff537"  server ["adb", "devices"] on laptop  exit 0
+"61cc0092-835e-4d1e-b73d-da4e5ba6d959"  server ["bash"] on laptop  denied: bash is not added on laptop
+"386d7775-9111-4b2c-a499-0fbfc5ece947"  server ["adb", "devices"] on laptop  exit 0
+"7cb366a0-d0f4-4923-bd58-66107d3726bc"  server ["adb", "devices"] on laptop  exit 0
+"cbbd4163-2c13-4ced-8977-a0268f543bfb"  server ["adb", "devices"] on laptop  exit 0
+"5ccbe876-c8b1-4455-9b72-3629f0695ee4"  server ["adb", "devices"] on laptop  exit 0
+"1cd49ade-78b7-49ca-b9cc-22f866bc5259"  server ["adb", "devices"] on laptop  exit 0
+"328512d3-d2e5-4c21-b243-5e044ec622b2"  server ["adb", "devices"] on laptop  exit 0
+"cf57bca7-2180-4c07-8afa-0e1e13b4c1d7"  server ["adb", "devices"] on laptop  exit 0
+exit: 0
+$ ssh server '/home/owner/.local/bin/clix log'
+"5cb3551d-8fa4-4611-859b-738e35a44b26"  server ["adb", "devices"] on laptop  denied: adb is not added on laptop
+"09b52dff-3cca-4641-b51f-6622103ff537"  server ["adb", "devices"] on laptop  exit 0
+"61cc0092-835e-4d1e-b73d-da4e5ba6d959"  server ["bash"] on laptop  denied: bash is not added on laptop
+"386d7775-9111-4b2c-a499-0fbfc5ece947"  server ["adb", "devices"] on laptop  exit 0
+"7cb366a0-d0f4-4923-bd58-66107d3726bc"  server ["adb", "devices"] on laptop  exit 0
+"cbbd4163-2c13-4ced-8977-a0268f543bfb"  server ["adb", "devices"] on laptop  exit 0
+"5ccbe876-c8b1-4455-9b72-3629f0695ee4"  server ["adb", "devices"] on laptop  exit 0
+"fdee9274-6362-445e-b7b0-5f3625d8a22f"  server ["adb", "devices"] on laptop  failed: pin conflict: src/clix-proof-a35a2acb-de57-48f1-a961-88a533ba70aa.txt (server and laptop both wrote). Not merging.
+"1cd49ade-78b7-49ca-b9cc-22f866bc5259"  server ["adb", "devices"] on laptop  exit 0
+"328512d3-d2e5-4c21-b243-5e044ec622b2"  server ["adb", "devices"] on laptop  exit 0
+"cf57bca7-2180-4c07-8afa-0e1e13b4c1d7"  server ["adb", "devices"] on laptop  exit 0
+exit: 0

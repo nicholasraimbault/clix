@@ -1,0 +1,2 @@
+# Captured process output can contain trailing spaces and final blank lines.
+plans/evidence/**/*.log -whitespace

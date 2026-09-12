@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux build and tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: "1"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de
+        with:
+          toolchain: 1.96.0
+          components: rustfmt, clippy
+
+      - name: Record compiler and revision
+        run: |
+          rustc --version --verbose
+          cargo --version
+          git rev-parse HEAD
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Check lint warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      # These are Linux unit, process, filesystem and loopback mesh tests.
+      # Real devices, lid sleep and desktop interactions need separate evidence.
+      - name: Run tests
+        run: cargo test --locked
+
+      - name: Build release binary
+        run: cargo build --release --locked

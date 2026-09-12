@@ -1,0 +1,10 @@
+# Pseudonymized runtime record; see README.md in this directory.
+clix status exit 0 laptop
+mesh: offline
+ 
+clix add true exit 0  
+clix hands exit 0 true
+ 
+clix remove true exit 0  
+clix hands exit 0  
+Owner controls work with unavailable Tailscale. This uses a failing local Tailscale command, not a network outage claim.

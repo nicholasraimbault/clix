@@ -1,0 +1,73 @@
+# Pseudonymized runtime record; see README.md in this directory.
+pair: laptop CLI phrase -> server CLI phrase (phrase omitted)
+join exit: 0  
+listen exit: 0  
+$ /home/owner/.local/bin/clix status
+laptop
+mesh: 100.64.0.10:7421
+paired: server (100.64.0.20:7421)
+exit: 0
+$ ssh server '/home/owner/.local/bin/clix status'
+server
+mesh: 100.64.0.20:7421
+paired: laptop (100.64.0.10:7421)
+exit: 0
+$ ssh server '/home/owner/.local/bin/clix laptop adb devices'
+adb is not added on laptop
+exit: 1
+$ /home/owner/.local/bin/clix pending
+server wants adb
+exit: 0
+$ /home/owner/.local/bin/clix deny
+exit: 0
+$ /home/owner/.local/bin/clix add adb --allow server --once
+exit: 0
+$ ssh server '/home/owner/.local/bin/clix laptop adb devices'
+List of devices attached
+PHONE_SERIAL_REDACTED	device
+
+exit: 0
+once grant consumed on laptop
+$ ssh server '/home/owner/.local/bin/clix laptop bash'
+bash is not added on laptop
+exit: 1
+$ /home/owner/.local/bin/clix pending
+server wants bash
+exit: 0
+$ /home/owner/.local/bin/clix deny
+exit: 0
+$ /home/owner/.local/bin/clix add adb --allow server
+exit: 0
+$ ssh server '/home/owner/.local/bin/clix laptop adb devices'
+List of devices attached
+PHONE_SERIAL_REDACTED	device
+
+exit: 0
+$ systemctl --user stop clix.service
+exit: 0
+$ ssh server '/home/owner/.local/bin/clix --no-wait laptop adb devices'
+7cb366a0-d0f4-4923-bd58-66107d3726bc
+laptop is asleep, waiting…
+exit: 0
+$ ssh server '/home/owner/.local/bin/clix request laptop true'
+laptop is unreachable; request for true is saved and will be delivered when it returns.
+exit: 0
+$ ssh server 'systemctl --user restart clix.service'
+exit: 0
+$ systemctl --user start clix.service
+exit: 0
+recovered waiting job: {"argv": ["adb", "devices"], "body": "laptop", "from": "server", "id": "7cb366a0-d0f4-4923-bd58-66107d3726bc", "status": {"Done": {"exit": 0}}, "stderr": [], "stdout": [76, 105, 115, 116, 32, 111, 102, 32, 100, 101, 118, 105, 99, 101, 115, 32, 97, 116, 116, 97, 99, 104, 101, 100, 10, 80, 72, 79, 78, 69, 95, 83, 69, 82, 73, 65, 76, 95, 82, 69, 68, 65, 67, 84, 69, 68, 9, 100, 101, 118, 105, 99, 101, 10, 10]}
+$ /home/owner/.local/bin/clix pending
+server wants true
+exit: 0
+$ /home/owner/.local/bin/clix deny
+exit: 0
+$ ssh server 'python3 -c '"'"'import json,socket; s=socket.socket(socket.AF_UNIX); s.connect("/run/user/1000/clix.sock"); s.sendall(b"{\"op\":\"log\"}\n"); print(s.makefile().readline())'"'"''
+{"jobs":[{"argv":["adb","devices"],"body":"laptop","from":"server","id":"5cb3551d-8fa4-4611-859b-738e35a44b26","status":{"Denied":{"reason":"adb is not added on laptop"}},"stderr":[],"stdout":[]},{"argv":["adb","devices"],"body":"laptop","from":"server","id":"09b52dff-3cca-4641-b51f-6622103ff537","status":{"Done":{"exit":0}},"stderr":[],"stdout":[76,105,115,116,32,111,102,32,100,101,118,105,99,101,115,32,97,116,116,97,99,104,101,100,10,80,72,79,78,69,95,83,69,82,73,65,76,95,82,69,68,65,67,84,69,68,9,100,101,118,105,99,101,10,10]},{"argv":["bash"],"body":"laptop","from":"server","id":"61cc0092-835e-4d1e-b73d-da4e5ba6d959","status":{"Denied":{"reason":"bash is not added on laptop"}},"stderr":[],"stdout":[]},{"argv":["adb","devices"],"body":"laptop","from":"server","id":"386d7775-9111-4b2c-a499-0fbfc5ece947","status":{"Done":{"exit":0}},"stderr":[],"stdout":[76,105,115,116,32,111,102,32,100,101,118,105,99,101,115,32,97,116,116,97,99,104,101,100,10,80,72,79,78,69,95,83,69,82,73,65,76,95,82,69,68,65,67,84,69,68,9,100,101,118,105,99,101,10,10]},{"argv":["adb","devices"],"body":"laptop","from":"server","id":"7cb366a0-d0f4-4923-bd58-66107d3726bc","status":"Running","stderr":[],"stdout":[]}],"lines":["server adb devices on laptop  denied: adb is not added on laptop","server adb devices on laptop  exit 0","server bash on laptop  denied: bash is not added on laptop","server adb devices on laptop  exit 0","server adb devices on laptop  running"]}
+
+exit: 0
+Traceback (most recent call last):
+  File "/tmp/clix-two-machine-proof.py", line 75, in <module>
+    assert {j['id']:j for j in local}=={j['id']:j for j in origin},'logs differ'
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: logs differ

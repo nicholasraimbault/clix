@@ -1,0 +1,24 @@
+# Pseudonymized runtime record; see README.md in this directory.
+clix laptop adb devices on server: exit 0 List of devices attached
+PHONE_SERIAL_REDACTED	device
+
+ 
+Default ~/src: laptop -> server contents match
+clix laptop adb devices on server: exit 0 List of devices attached
+PHONE_SERIAL_REDACTED	device
+
+ 
+Default ~/src: server -> laptop contents match
+clix laptop adb devices on server: exit 1  pin conflict: src/clix-proof-a35a2acb-de57-48f1-a961-88a533ba70aa.txt (server and laptop both wrote). Not merging.
+
+Both edits retained; conflict names path and stops execution
+clix laptop adb devices on server: exit 0 List of devices attached
+PHONE_SERIAL_REDACTED	device
+
+ 
+clix laptop adb devices on server: exit 0 List of devices attached
+PHONE_SERIAL_REDACTED	device
+
+ 
+Deletion propagated; earlier versions retained in .clix-recovery
+Proof path: clix-proof-a35a2acb-de57-48f1-a961-88a533ba70aa.txt

@@ -1,0 +1,247 @@
+# Public copy: personal home paths replaced with /home/owner.
+$ rustc --version --verbose
+rustc 1.96.0 (ac68faa20 2026-05-25)
+binary: rustc
+commit-hash: ac68faa20c58cbccd01ee7208bf3b6e93a7d7f96
+commit-date: 2026-05-25
+host: x86_64-unknown-linux-gnu
+release: 1.96.0
+LLVM version: 22.1.2
+$ cargo --version
+cargo 1.96.0 (30a34c682 2026-05-25)
+$ cargo clippy --locked --all-targets -- -D warnings
+    Checking clix v0.1.0 (/home/owner/Projects/clix)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.68s
+$ cargo test --locked
+   Compiling clix v0.1.0 (/home/owner/Projects/clix)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.35s
+     Running unittests src/lib.rs (target/debug/deps/clix-119cfd1c7fd22e01)
+
+running 14 tests
+test pair::tests::body_names_must_be_addressable_as_cli_destinations ... ok
+test install::tests::install_writes_unit_under_clix_systemd_dir ... ok
+test tailscale::tests::parse_fixture_names_and_ips ... ok
+test pin::tests::confined_reads_reject_symlinks_and_writes_require_the_scanned_version ... ok
+test tailscale::tests::mocked_tailscale_failing_is_off ... ok
+test transport::tests::unpaired_client_gets_no_application_response ... ok
+test transport::tests::a_different_server_identity_is_rejected_before_request ... ok
+test transport::tests::presenting_expected_server_public_key_without_its_secret_is_rejected ... ok
+test transport::tests::live_allowlist_updates_affect_existing_server_config ... ok
+test transport::tests::presenting_paired_client_public_key_without_its_secret_is_rejected ... ok
+test transport::tests::mutual_auth_preserves_binary_request_and_response ... ok
+test pair::tests::rejected_listener_identity_does_not_authorize_joiner_on_listener ... ok
+test pair::tests::replaying_join_identity_as_confirmation_does_not_authorize_peer ... ok
+test pair::tests::lost_final_acknowledgement_reports_saved_local_trust ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running unittests src/main.rs (target/debug/deps/clix-9d878df71dec2f0a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cli_parse.rs (target/debug/deps/cli_parse-a13f497b4141a898)
+
+running 20 tests
+test add_without_tool_is_usage ... ok
+test add_is_reserved ... ok
+test allow_for_is_not_once ... ok
+test allow_is_repeatable ... ok
+test bad_date_is_usage ... ok
+test add_once_for_allow ... ok
+test exec_without_cmd_is_usage ... ok
+test remove_without_tool_is_usage ... ok
+test bad_weekday_is_usage ... ok
+test request_without_tool_is_usage ... ok
+test days_dates_from_to ... ok
+test server_fills_the_same_allow_field ... ok
+test exec_is_body_then_argv ... ok
+test exec_no_wait_flag ... ok
+test request_is_body_and_tool ... ok
+test until_is_local_today_or_tomorrow ... ok
+test days_and_weekdays_conflict ... ok
+test weekdays_is_a_bool_on_add ... ok
+test once_rejects_repeating_schedule ... ok
+test reserved_commands ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/exec.rs (target/debug/deps/exec-f21db24e3d0b2ae5)
+
+running 2 tests
+test rejects_argv0_mismatch ... ok
+test runs_binary_not_shell ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/grant.rs (target/debug/deps/grant-5506125c7eb75c84)
+
+running 18 tests
+test allow_is_the_same_allow_from_field ... ok
+test add_resolves_true_via_which ... ok
+test add_missing_binary_is_no_such_tool ... ok
+test add_all_bodies_until_removed ... ok
+test allow_server_denies_other ... ok
+test dates_or_days_union ... ok
+test hands_lists_added_tools ... ok
+test expired_until_is_denied ... ok
+test once_and_schedule_conflict ... ok
+test not_allowed_is_plain_english ... ok
+test missing_is_plain_english ... ok
+test remove_then_check_is_not_added ... ok
+test expired_until_is_plain_english ... ok
+test readd_replaces_who ... ok
+test unknown_allow_body_is_rejected_without_changing_grants ... ok
+test future_until_is_allowed ... ok
+test days_and_hours_allows_friday_noon_denies_before_from ... ok
+test days_and_hours_denies_saturday ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/local_rpc.rs (target/debug/deps/local_rpc-9220aff5750883eb)
+
+running 3 tests
+test missing_daemon_is_not_run_locally ... ok
+test owner_socket_is_mode_0600 ... ok
+test add_then_hands ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/log.rs (target/debug/deps/log-efe95d96cbef46d3)
+
+running 1 test
+test log_on_both_bodies_after_success_and_deny ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.86s
+
+     Running tests/mesh_exec.rs (target/debug/deps/mesh_exec-b33500ef1f81daa5)
+
+running 6 tests
+test unknown_peer_is_dropped ... ok
+test mesh_request_uses_authenticated_sender ... ok
+test duplicate_invocation_returns_same_job_and_cannot_change_argv ... ok
+test third_peer_cannot_read_another_callers_job_or_spoof_allow_from ... ok
+test mesh_rejects_all_owner_and_result_injection_operations ... ok
+test server_runs_granted_binary_and_denies_bash ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.86s
+
+     Running tests/notify.rs (target/debug/deps/notify-ab3befeb19a8dd12)
+
+running 1 test
+test denied_exec_notifies_once_allow_deny ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.61s
+
+     Running tests/pair.rs (target/debug/deps/pair-e498c7155b1db031)
+
+running 4 tests
+test phrase_is_three_wordlist_words ... ok
+test wrong_phrase_does_not_match ... ok
+test pair_two_daemons ... ok
+test pair_stores_owner_keys_on_both_sides ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+     Running tests/pin.rs (target/debug/deps/pin-38780a5e4718ab9b)
+
+running 17 tests
+test pin_io_error_is_not_success ... ok
+test conflict_stops ... ok
+test copies_new_file_to_peer ... ok
+test deletion_against_edit_is_a_conflict ... ok
+test pending_recovery_receipt_blocks_sync_after_restart ... ok
+test pin_cannot_replace_an_active_granted_binary ... ok
+test a_third_peer_does_not_replace_the_first_peers_baseline ... ok
+test unknown_peer_on_pair_is_denied ... ok
+test deletions_propagate_and_displaced_contents_are_recoverable ... ok
+test late_write_through_retained_inode_is_reported_and_preserved ... ok
+test preserved_timestamps_do_not_hide_both_sides_edits ... ok
+test one_side_edit_copies_after_sync ... ok
+test invalid_pin_content_is_not_ok ... ok
+test conflict_blocks_mesh_exec ... ok
+test network_pin_preserves_executable_mode_and_binary_content ... ok
+test start_conflict_does_not_run_waiting_exec ... ok
+test mesh_one_side_edit_copies ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.14s
+
+     Running tests/process.rs (target/debug/deps/process-c950fc6f4fb02a26)
+
+running 11 tests
+test offline_permission_request_survives_origin_restart_without_running_a_tool ... ok
+test simultaneous_once_invocations_have_one_execution_and_one_success ... ok
+test running_job_is_visible_on_both_bodies_and_owner_control_is_responsive ... ok
+test remote_cli_preserves_exit_23_and_both_output_streams ... ok
+test remote_cli_preserves_binary_stdout_exactly ... ok
+test queued_job_survives_origin_process_restart_with_the_same_id ... ok
+test successful_once_run_is_consumed_when_descendant_output_exceeds_the_limit ... ok
+test runner_restart_reports_uncertainty_without_rerunning_or_releasing_once ... ok
+test failed_once_run_releases_the_reservation_and_later_success_consumes_it ... ok
+test finishing_an_old_run_does_not_consume_the_owners_replacement_once_grant ... ok
+test output_over_four_mib_per_stream_returns_bounded_failure ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.24s
+
+     Running tests/request.rs (target/debug/deps/request-9b2e86c1c783743d)
+
+running 9 tests
+test local_request_can_be_allowed_once ... ok
+test mesh_request_from_is_the_authenticated_peer ... ok
+test server_cannot_allow ... ok
+test request_creates_pending_without_running ... ok
+test server_cannot_deny ... ok
+test request_redelivery_after_owner_denial_does_not_recreate_prompt ... ok
+test deny_drops_latest ... ok
+test pending_is_on_the_target_body ... ok
+test denied_becomes_pending_allow_once ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+     Running tests/store.rs (target/debug/deps/store-f0f369e16de395e8)
+
+running 15 tests
+test schedule_days_or_dates_union ... ok
+test empty_grants_persist_empty ... ok
+test grant_roundtrip ... ok
+test identity_peers_requests_roundtrip ... ok
+test grant_schedule_roundtrip ... ok
+test job_roundtrip ... ok
+test socket_path_uses_xdg_runtime_dir ... ok
+test state_dir_default_is_project_dirs ... ok
+test schedule_empty_calendar_is_every_day ... ok
+test state_dir_uses_clix_home ... ok
+test socket_path_prefers_clix_sock ... ok
+test schedule_hours_use_local_clock ... ok
+test owner_sk_generated_once ... ok
+test store_under_clix_home_writes_state_json ... ok
+test secrets_are_private_and_failed_persistence_stops_further_mutations ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/tray.rs (target/debug/deps/tray-f979ae64423e5d16)
+
+running 1 test
+test tooltip_pending_and_running ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/wait.rs (target/debug/deps/wait-1ce81cd1b68ad6a3)
+
+running 3 tests
+test unreachable_peer_is_asleep_not_connection_refused ... ok
+test wait_then_run_when_laptop_returns ... ok
+test wait_runs_exactly_once_when_laptop_returns ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+   Doc-tests clix
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+$ cargo build --locked --release
+   Compiling clix v0.1.0 (/home/owner/Projects/clix)
+    Finished `release` profile [optimized] target(s) in 5.28s

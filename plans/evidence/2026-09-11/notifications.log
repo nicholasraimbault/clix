@@ -1,0 +1,3 @@
+# Pseudonymized runtime record; see README.md in this directory.
+Persisted pending request replayed through production notify-rust: {'body': 'laptop wants true on this machine', 'actions': ['default', 'Allow once', 'once', 'Allow once', 'allow', 'Allow', 'deny', 'Deny']}
+D-Bus Allow once action updated the same persisted grant and pending objects.
