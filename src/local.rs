@@ -12,6 +12,8 @@ use crate::cli::{parse_ampm_naive, Cmd};
 use crate::error::{ClixError, Result};
 use crate::exec::run_granted;
 use crate::grant::{self, consume_once};
+use crate::mesh::MeshHandle;
+use crate::pair::{self, hostname};
 use crate::store::Store;
 use crate::types::{BodyId, Schedule};
 
@@ -44,7 +46,11 @@ fn connect_err(e: std::io::Error) -> ClixError {
     }
 }
 
-pub(crate) async fn handle_connection(store: Arc<Mutex<Store>>, stream: tokio::net::UnixStream) {
+pub(crate) async fn handle_connection(
+    store: Arc<Mutex<Store>>,
+    mesh: MeshHandle,
+    stream: tokio::net::UnixStream,
+) {
     let cred = match stream.peer_cred() {
         Ok(c) => c,
         Err(_) => return,
@@ -70,7 +76,7 @@ pub(crate) async fn handle_connection(store: Arc<Mutex<Store>>, stream: tokio::n
                 continue;
             }
         };
-        let resp = match handle_rpc(&store, req) {
+        let resp = match handle_rpc(&store, &mesh, req).await {
             Ok(v) => v,
             Err(e) => json!({"ok": false, "error": e.to_string()}),
         };
@@ -88,7 +94,7 @@ async fn write_json<W: AsyncWriteExt + Unpin>(writer: &mut W, v: &Value) -> std:
     writer.flush().await
 }
 
-fn handle_rpc(store: &Arc<Mutex<Store>>, req: Value) -> Result<Value> {
+async fn handle_rpc(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: Value) -> Result<Value> {
     let op = req
         .get("op")
         .and_then(Value::as_str)
@@ -98,7 +104,10 @@ fn handle_rpc(store: &Arc<Mutex<Store>>, req: Value) -> Result<Value> {
         "hands" => rpc_hands(store),
         "remove" => rpc_remove(store, &req),
         "exec" => rpc_exec(store, &req),
-        "status" => rpc_status(store),
+        "status" => rpc_status(store, mesh),
+        "pair_start" => rpc_pair_start(store, mesh, &req),
+        "pair_join" => rpc_pair_join(store, &req).await,
+        "pair_await" => rpc_pair_await(mesh).await,
         other => Err(ClixError::Usage(format!("unknown op: {other}"))),
     }
 }
@@ -188,12 +197,76 @@ fn rpc_exec(store: &Arc<Mutex<Store>>, req: &Value) -> Result<Value> {
     }
 }
 
-fn rpc_status(store: &Arc<Mutex<Store>>) -> Result<Value> {
+fn rpc_status(store: &Arc<Mutex<Store>>, mesh: &MeshHandle) -> Result<Value> {
     let store = lock_store(store);
     Ok(json!({
         "body": store.body_name,
         "peers": store.peers,
+        "mesh_addr": mesh.addr,
     }))
+}
+
+fn rpc_name(req: &Value) -> Option<&str> {
+    req.get("name")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+}
+
+fn apply_body_name(store: &Arc<Mutex<Store>>, name: Option<&str>) -> Result<()> {
+    let mut store = lock_store(store);
+    if let Some(n) = name {
+        store.body_name = n.to_string();
+    }
+    if store.body_name.is_empty() {
+        store.body_name = hostname();
+    }
+    store.save()
+}
+
+fn rpc_pair_start(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: &Value) -> Result<Value> {
+    apply_body_name(store, rpc_name(req))?;
+    let phrase = pair::phrase();
+    let rx = mesh.register_pair();
+    let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+    mesh.set_pair_done(done_rx);
+    let store = store.clone();
+    let p = phrase.clone();
+    tokio::spawn(async move {
+        let result = pair::complete_listen(store, rx, &p).await;
+        let _ = done_tx.send(result);
+    });
+    Ok(json!({
+        "ok": true,
+        "phrase": phrase,
+        "addr": mesh.addr,
+    }))
+}
+
+async fn rpc_pair_join(store: &Arc<Mutex<Store>>, req: &Value) -> Result<Value> {
+    apply_body_name(store, rpc_name(req))?;
+    let phrase = req
+        .get("phrase")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ClixError::Usage("usage: clix pair <phrase>".into()))?;
+    let addr = req
+        .get("addr")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| ClixError::Usage("pair join needs addr".into()))?;
+    let peer = pair::pair_join(store.clone(), addr, phrase).await?;
+    Ok(json!({
+        "ok": true,
+        "name": peer.name.0,
+    }))
+}
+
+async fn rpc_pair_await(mesh: &MeshHandle) -> Result<Value> {
+    let rx = mesh.take_pair_done()?;
+    match rx.await {
+        Ok(Ok(peer)) => Ok(json!({"ok": true, "name": peer.name.0})),
+        Ok(Err(e)) => Err(e),
+        Err(_) => Err(ClixError::Io("pair cancelled".into())),
+    }
 }
 
 fn json_string_list(v: Option<&Value>) -> Vec<String> {
@@ -321,7 +394,10 @@ pub(crate) fn rpc_from_cmd(cmd: &Cmd) -> Result<Value> {
         Cmd::Hands => Ok(json!({"op": "hands"})),
         Cmd::Remove { tool } => Ok(json!({"op": "remove", "tool": tool})),
         Cmd::Exec { body, argv } => Ok(json!({"op": "exec", "body": body, "argv": argv})),
-        Cmd::Pair { phrase } => Ok(json!({"op": "pair", "phrase": phrase})),
+        Cmd::Pair { phrase, name } => match phrase {
+            None => Ok(json!({"op": "pair_start", "name": name})),
+            Some(phrase) => Ok(json!({"op": "pair_join", "phrase": phrase, "name": name})),
+        },
         Cmd::Log => Ok(json!({"op": "log"})),
         Cmd::Pending => Ok(json!({"op": "pending"})),
         Cmd::Allow => Ok(json!({"op": "allow"})),
@@ -359,6 +435,12 @@ pub(crate) fn emit_rpc(cmd: &Cmd, v: &Value) -> Result<()> {
         Cmd::Status => {
             if let Some(body) = v.get("body").and_then(Value::as_str) {
                 println!("{body}");
+            }
+            Ok(())
+        }
+        Cmd::Pair { phrase: None, .. } => {
+            if let Some(p) = v.get("phrase").and_then(Value::as_str) {
+                println!("pair with: {p}");
             }
             Ok(())
         }

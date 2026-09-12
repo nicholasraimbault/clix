@@ -25,6 +25,7 @@ pub enum Cmd {
     },
     Pair {
         phrase: Option<String>,
+        name: Option<String>,
     },
     Hands,
     Remove {
@@ -74,6 +75,8 @@ enum Commands {
     },
     Pair {
         phrase: Option<String>,
+        #[arg(long = "name", value_name = "BODY")]
+        name: Option<String>,
     },
     Hands,
     Remove {
@@ -144,7 +147,7 @@ pub fn parse_argv(argv: &[String]) -> Result<Cmd> {
                 weekdays,
             })
         }
-        Some(Commands::Pair { phrase }) => Ok(Cmd::Pair { phrase }),
+        Some(Commands::Pair { phrase, name }) => Ok(Cmd::Pair { phrase, name }),
         Some(Commands::Hands) => Ok(Cmd::Hands),
         Some(Commands::Remove { tool }) => {
             let tool = tool.ok_or_else(|| ClixError::Usage("usage: clix remove <tool>".into()))?;

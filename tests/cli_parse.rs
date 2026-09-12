@@ -258,12 +258,32 @@ fn reserved_commands() {
         Cmd::Status
     ));
     match parse_argv(&["clix".into(), "pair".into()]).unwrap() {
-        Cmd::Pair { phrase } => assert_eq!(phrase, None),
+        Cmd::Pair { phrase, name } => {
+            assert_eq!(phrase, None);
+            assert_eq!(name, None);
+        }
         _ => panic!("expected pair"),
     }
     match parse_argv(&["clix".into(), "pair".into(), "oak-42".into()]).unwrap() {
-        Cmd::Pair { phrase } => assert_eq!(phrase.as_deref(), Some("oak-42")),
+        Cmd::Pair { phrase, name } => {
+            assert_eq!(phrase.as_deref(), Some("oak-42"));
+            assert_eq!(name, None);
+        }
         _ => panic!("expected pair"),
+    }
+    match parse_argv(&[
+        "clix".into(),
+        "pair".into(),
+        "--name".into(),
+        "laptop".into(),
+    ])
+    .unwrap()
+    {
+        Cmd::Pair { phrase, name } => {
+            assert_eq!(phrase, None);
+            assert_eq!(name.as_deref(), Some("laptop"));
+        }
+        _ => panic!("expected pair --name"),
     }
     match parse_argv(&["clix".into(), "remove".into(), "adb".into()]).unwrap() {
         Cmd::Remove { tool } => assert_eq!(tool, "adb"),

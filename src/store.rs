@@ -63,6 +63,7 @@ impl Store {
 }
 
 fn generate_sk() -> Result<Vec<u8>> {
+    // 32-byte ed25519 seed
     let mut buf = vec![0u8; 32];
     let mut f = fs::File::open("/dev/urandom")
         .map_err(|e| ClixError::Io(format!("read /dev/urandom: {e}")))?;
