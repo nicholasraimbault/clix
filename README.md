@@ -1,5 +1,7 @@
 # Clix
 
+[![CI](https://github.com/nicholasraimbault/clix/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/nicholasraimbault/clix/actions/workflows/ci.yml)
+
 **Your machines. The tools you grant.**
 
 Run tools on your other machines without opening a login session.
