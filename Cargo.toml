@@ -5,6 +5,7 @@ edition = "2021"
 description = "Owner-granted tools across your Linux machines, for you or your agent"
 repository = "https://github.com/nicholasraimbault/clix"
 readme = "README.md"
+license = "Apache-2.0"
 
 [lib]
 path = "src/lib.rs"
