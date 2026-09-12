@@ -154,7 +154,33 @@ pub fn is_unreachable(err: &ClixError) -> bool {
         || s.contains("empty mesh response")
 }
 
+/// Finish a waiting/running job destined to `peer`. Keeps stored from/body/argv.
+pub fn apply_peer_result(
+    store: &Arc<Mutex<Store>>,
+    peer: &BodyId,
+    incoming: &Job,
+) -> Result<Option<Job>> {
+    let mut s = store.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(existing) = s.jobs.iter_mut().find(|j| j.id == incoming.id) else {
+        return Ok(None);
+    };
+    if existing.body != *peer {
+        return Ok(None);
+    }
+    if !matches!(existing.status, JobStatus::WaitingBody | JobStatus::Running) {
+        return Ok(None);
+    }
+    if !is_terminal(&incoming.status) {
+        return Ok(None);
+    }
+    existing.status = incoming.status.clone();
+    let out = existing.clone();
+    s.save()?;
+    Ok(Some(out))
+}
+
 /// Retry mesh exec until the body is back or the job is already terminal.
+/// Mesh-retry only while `WaitingBody`. `Running` waits for `job_result`.
 /// Grant check happens on the runner at run time.
 pub async fn wait_for_peer(
     store: &Arc<Mutex<Store>>,
@@ -164,40 +190,50 @@ pub async fn wait_for_peer(
     argv: &[String],
     job: &Job,
 ) -> Result<Value> {
+    let dest = BodyId(body.to_string());
     loop {
-        {
+        let retry = {
             let s = store.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some(existing) = s.jobs.iter().find(|j| j.id == job.id) {
-                if is_terminal(&existing.status) {
+            match s.jobs.iter().find(|j| j.id == job.id) {
+                Some(existing) if is_terminal(&existing.status) => {
                     return Ok(exec_json(existing));
                 }
+                Some(existing) if matches!(existing.status, JobStatus::WaitingBody) => true,
+                _ => false,
             }
-        }
-        let addr = {
-            let s = store.lock().unwrap_or_else(|e| e.into_inner());
-            s.peers
-                .iter()
-                .find(|p| p.name.0 == body)
-                .and_then(|p| p.addr.clone())
         };
-        if let Some(addr) = addr {
-            match mesh::call(
-                &addr,
-                sk,
-                json!({"op": "exec", "argv": argv, "job_id": job.id}),
-            )
-            .await
-            {
-                Ok(resp) => {
-                    if let Some(v) = resp.get("job") {
-                        if let Ok(done) = serde_json::from_value::<Job>(v.clone()) {
-                            put(store, done)?;
+        if retry {
+            let addr = {
+                let s = store.lock().unwrap_or_else(|e| e.into_inner());
+                s.peers
+                    .iter()
+                    .find(|p| p.name.0 == body)
+                    .and_then(|p| p.addr.clone())
+            };
+            if let Some(addr) = addr {
+                match mesh::call(
+                    &addr,
+                    sk,
+                    json!({"op": "exec", "argv": argv, "job_id": job.id}),
+                )
+                .await
+                {
+                    Ok(resp) => {
+                        let st = resp.get("status").and_then(Value::as_str);
+                        if st != Some("running") && st != Some("waiting") {
+                            if let Some(v) = resp.get("job") {
+                                if let Ok(remote) = serde_json::from_value::<Job>(v.clone()) {
+                                    apply_peer_result(store, &dest, &remote)?;
+                                }
+                            }
+                            if st == Some("done") || st == Some("denied") || st == Some("failed") {
+                                return Ok(resp);
+                            }
                         }
                     }
-                    return Ok(resp);
+                    Err(e) if is_unreachable(&e) => {}
+                    Err(e) => return Err(e),
                 }
-                Err(e) if is_unreachable(&e) => {}
-                Err(e) => return Err(e),
             }
         }
         tokio::select! {

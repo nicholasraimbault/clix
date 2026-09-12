@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{ClixError, Result};
-use crate::types::{Grant, Job, Peer, Request};
+use crate::types::{BodyId, Grant, Job, JobStatus, Peer, Request};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Store {
@@ -72,6 +72,18 @@ impl Store {
             self.jobs.push(job);
         }
         self.save()
+    }
+
+    /// WaitingBody → Running for jobs destined to `body`. One claimer.
+    pub fn claim_waiting_for(&mut self, body: &BodyId) -> Vec<Job> {
+        let mut out = Vec::new();
+        for j in self.jobs.iter_mut() {
+            if j.body == *body && matches!(j.status, JobStatus::WaitingBody) {
+                j.status = JobStatus::Running;
+                out.push(j.clone());
+            }
+        }
+        out
     }
 }
 

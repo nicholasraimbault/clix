@@ -81,6 +81,125 @@ async fn mesh_from_is_the_authenticated_peer() {
 }
 
 #[tokio::test]
+async fn job_poll_marks_waiting_claimed() {
+    let (laptop, server) = paired("laptop", "server").await;
+    laptop.rpc(json!({"op":"add","tool":"true"})).await.unwrap();
+    laptop.kill().await;
+    let w = server
+        .rpc(json!({"op":"exec","body":"laptop","argv":["true"],"no_wait":true}))
+        .await
+        .unwrap();
+    assert_eq!(w["status"], "waiting");
+    let v = laptop
+        .mesh_raw(server.mesh_addr(), json!({"op": "job_poll"}))
+        .await
+        .unwrap();
+    let jobs = v["jobs"].as_array().expect("jobs");
+    assert_eq!(jobs.len(), 1, "{v}");
+    assert_eq!(jobs[0]["status"], "Running");
+    let v2 = laptop
+        .mesh_raw(server.mesh_addr(), json!({"op": "job_poll"}))
+        .await
+        .unwrap();
+    assert!(
+        v2["jobs"].as_array().map(|a| a.is_empty()).unwrap_or(false),
+        "claimed jobs must not be returned again: {v2}"
+    );
+}
+
+#[tokio::test]
+async fn job_result_only_finishes_job_destined_to_that_peer() {
+    let (laptop, server) = paired("laptop", "server").await;
+    laptop.rpc(json!({"op":"add","tool":"true"})).await.unwrap();
+    laptop.kill().await;
+    let w = server
+        .rpc(json!({"op":"exec","body":"laptop","argv":["true"],"no_wait":true}))
+        .await
+        .unwrap();
+    let id = w["job"]["id"].as_str().expect("job id").to_string();
+
+    let phone = TestDaemon::spawn_named("phone").await;
+    let phrase = server.rpc(json!({"op": "pair_start"})).await.unwrap()["phrase"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    phone
+        .rpc(json!({"op": "pair_join", "phrase": phrase}))
+        .await
+        .unwrap();
+    phone
+        .mesh_raw(
+            server.mesh_addr(),
+            json!({
+                "op": "job_result",
+                "result": {
+                    "job": {
+                        "id": id,
+                        "body": "laptop",
+                        "argv": ["true"],
+                        "from": "phone",
+                        "status": {"Done": {"exit": 0}}
+                    }
+                }
+            }),
+        )
+        .await
+        .unwrap();
+
+    let log = server.rpc(json!({"op": "log"})).await.unwrap();
+    let job = log["jobs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|j| j["id"] == id)
+        .expect("job");
+    assert_eq!(job["from"], "server", "{job}");
+    assert_ne!(job["status"], json!({"Done": {"exit": 0}}), "{job}");
+}
+
+#[tokio::test]
+async fn job_result_from_field_does_not_become_caller() {
+    let (laptop, server) = paired("laptop", "server").await;
+    laptop.rpc(json!({"op":"add","tool":"true"})).await.unwrap();
+    laptop.kill().await;
+    let w = server
+        .rpc(json!({"op":"exec","body":"laptop","argv":["true"],"no_wait":true}))
+        .await
+        .unwrap();
+    let id = w["job"]["id"].as_str().expect("job id").to_string();
+    laptop
+        .mesh_raw(
+            server.mesh_addr(),
+            json!({
+                "op": "job_result",
+                "result": {
+                    "job": {
+                        "id": id,
+                        "body": "laptop",
+                        "argv": ["true"],
+                        "from": "laptop",
+                        "status": {"Done": {"exit": 0}}
+                    }
+                }
+            }),
+        )
+        .await
+        .unwrap();
+    let log = server.rpc(json!({"op": "log"})).await.unwrap();
+    let job = log["jobs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|j| j["id"] == id)
+        .expect("job");
+    assert_eq!(
+        job["from"], "server",
+        "from in mesh JSON must not replace caller: {job}"
+    );
+    assert_eq!(job["status"], json!({"Done": {"exit": 0}}), "{job}");
+}
+
+#[tokio::test]
 async fn unknown_peer_is_dropped() {
     let laptop = TestDaemon::spawn_named("laptop").await;
     let stranger = TestDaemon::spawn_named("stranger").await;

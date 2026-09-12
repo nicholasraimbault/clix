@@ -37,36 +37,50 @@ pub(crate) fn exec_with_job(
     if argv.is_empty() {
         return Err(ClixError::Usage("usage: clix <body> <cmd>…".into()));
     }
-    if let Some(ref id) = job_id {
-        let s = lock(store);
-        if let Some(job) = s.jobs.iter().find(|j| j.id == *id) {
-            if job::is_terminal(&job.status) {
-                return Ok(job::exec_json(job));
-            }
-        }
-    }
-    let id = match job_id {
+    let id = match job_id.clone() {
         Some(id) => id,
         None => job::new_id()?,
     };
     let (grant, body) = {
-        let s = lock(store);
+        let mut s = lock(store);
         let body = BodyId(s.body_name.clone());
+        if let Some(ref jid) = job_id {
+            if let Some(job) = s.jobs.iter().find(|j| j.id == *jid) {
+                if job::is_terminal(&job.status) || matches!(job.status, JobStatus::Running) {
+                    return Ok(job::exec_json(job));
+                }
+            }
+        }
         match grant::check(&s, &argv[0], from) {
-            Ok(g) => (g, body),
+            Ok(g) => {
+                if job_id.is_some() {
+                    if let Some(j) = s.jobs.iter_mut().find(|j| j.id == id) {
+                        j.status = JobStatus::Running;
+                    } else {
+                        s.jobs.push(Job {
+                            id: id.clone(),
+                            body: body.clone(),
+                            argv: argv.to_vec(),
+                            from: from.clone(),
+                            status: JobStatus::Running,
+                        });
+                    }
+                    s.save()?;
+                }
+                (g, body)
+            }
             Err(e) => {
-                drop(s);
                 let reason = e.to_string();
-                let job = finish_job(
-                    store,
+                let job = Job {
                     id,
-                    from.clone(),
                     body,
-                    argv.to_vec(),
-                    JobStatus::Denied {
+                    argv: argv.to_vec(),
+                    from: from.clone(),
+                    status: JobStatus::Denied {
                         reason: reason.clone(),
                     },
-                )?;
+                };
+                s.put_job(job.clone())?;
                 return Ok(denied_json(reason, job));
             }
         }

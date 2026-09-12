@@ -13,7 +13,7 @@ use crate::exec::{exec_checked, exec_with_job};
 use crate::job;
 use crate::pair;
 use crate::store::Store;
-use crate::types::{Job, JobStatus, Peer};
+use crate::types::{Job, Peer};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -278,7 +278,7 @@ fn handle_mesh_req(
             }
         }
         "job_poll" => rpc_job_poll(store, handle, peer, &req),
-        "job_result" => rpc_job_result(store, handle, &req),
+        "job_result" => rpc_job_result(store, handle, peer, &req),
         "request" => Ok(json!({"ok": true})),
         "" => Err(ClixError::Usage("missing op".into())),
         other => Err(ClixError::Usage(format!("unknown op: {other}"))),
@@ -291,35 +291,43 @@ fn rpc_job_poll(
     peer: &Peer,
     req: &Value,
 ) -> Result<Value> {
-    if let Some(addr) = req.get("addr").and_then(Value::as_str) {
-        if !addr.is_empty() {
-            let mut s = lock_store(store);
-            if let Some(p) = s.peers.iter_mut().find(|p| p.owner_pk == peer.owner_pk) {
-                p.addr = Some(addr.to_string());
-                s.save()?;
+    let jobs = {
+        let mut s = lock_store(store);
+        let mut changed = false;
+        if let Some(addr) = req.get("addr").and_then(Value::as_str) {
+            if !addr.is_empty() {
+                if let Some(p) = s.peers.iter_mut().find(|p| p.owner_pk == peer.owner_pk) {
+                    if p.addr.as_deref() != Some(addr) {
+                        p.addr = Some(addr.to_string());
+                        changed = true;
+                    }
+                }
             }
         }
-    }
-    let jobs: Vec<Job> = {
-        let s = lock_store(store);
-        s.jobs
-            .iter()
-            .filter(|j| j.body == peer.name && matches!(j.status, JobStatus::WaitingBody))
-            .cloned()
-            .collect()
+        let jobs = s.claim_waiting_for(&peer.name);
+        if changed || !jobs.is_empty() {
+            s.save()?;
+        }
+        jobs
     };
     handle.wake();
     Ok(json!({"ok": true, "jobs": jobs}))
 }
 
-fn rpc_job_result(store: &Arc<Mutex<Store>>, handle: &MeshHandle, req: &Value) -> Result<Value> {
-    if let Some(v) = req.get("result").and_then(|r| r.get("job")).cloned() {
-        let job: Job = serde_json::from_value(v)?;
-        job::put(store, job)?;
-        handle.wake();
-    } else if let Some(v) = req.get("job").cloned() {
-        let job: Job = serde_json::from_value(v)?;
-        job::put(store, job)?;
+fn rpc_job_result(
+    store: &Arc<Mutex<Store>>,
+    handle: &MeshHandle,
+    peer: &Peer,
+    req: &Value,
+) -> Result<Value> {
+    let v = req
+        .get("result")
+        .and_then(|r| r.get("job"))
+        .cloned()
+        .or_else(|| req.get("job").cloned());
+    if let Some(v) = v {
+        let incoming: Job = serde_json::from_value(v)?;
+        job::apply_peer_result(store, &peer.name, &incoming)?;
         handle.wake();
     }
     Ok(json!({"ok": true}))
@@ -350,11 +358,14 @@ pub async fn claim_waiting_jobs(store: Arc<Mutex<Store>>, local_addr: String) {
             if job.body.0 != name {
                 continue;
             }
-            let Ok(result) = exec_with_job(&store, &job.from, &job.argv, Some(job.id.clone()))
+            let Ok(result) = exec_with_job(&store, &peer.name, &job.argv, Some(job.id.clone()))
             else {
                 continue;
             };
-            let _ = call(&addr, &sk, json!({"op": "job_result", "result": result})).await;
+            let st = result.get("status").and_then(Value::as_str);
+            if st == Some("done") || st == Some("denied") || st == Some("failed") {
+                let _ = call(&addr, &sk, json!({"op": "job_result", "result": result})).await;
+            }
         }
     }
 }
