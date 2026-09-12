@@ -60,6 +60,11 @@ impl Store {
         fs::rename(&tmp, path)?;
         Ok(())
     }
+
+    pub fn append_job(&mut self, job: Job) -> Result<()> {
+        self.jobs.push(job);
+        self.save()
+    }
 }
 
 fn generate_sk() -> Result<Vec<u8>> {

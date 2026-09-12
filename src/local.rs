@@ -12,10 +12,11 @@ use crate::cli::{parse_ampm_naive, Cmd};
 use crate::error::{ClixError, Result};
 use crate::exec::exec_checked;
 use crate::grant;
+use crate::job;
 use crate::mesh::{self, MeshHandle};
 use crate::pair::{self, hostname};
 use crate::store::Store;
-use crate::types::{BodyId, Schedule};
+use crate::types::{BodyId, Job, Schedule};
 
 pub fn client_send(sock: &Path, req: Value) -> Result<Value> {
     let mut stream = UnixStream::connect(sock).map_err(connect_err)?;
@@ -104,6 +105,7 @@ async fn handle_rpc(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: Value) ->
         "hands" => rpc_hands(store),
         "remove" => rpc_remove(store, &req),
         "exec" => rpc_exec(store, &req).await,
+        "log" => rpc_log(store),
         "status" => rpc_status(store, mesh),
         "pair_start" => rpc_pair_start(store, mesh, &req),
         "pair_join" => rpc_pair_join(store, mesh, &req).await,
@@ -170,7 +172,24 @@ async fn rpc_exec(store: &Arc<Mutex<Store>>, req: &Value) -> Result<Value> {
             "reason": format!("{body} is not this body"),
         }));
     };
-    mesh::call(&addr, &sk, json!({"op": "exec", "argv": argv})).await
+    let resp = mesh::call(&addr, &sk, json!({"op": "exec", "argv": argv})).await?;
+    append_origin_job(store, &resp)?;
+    Ok(resp)
+}
+
+fn rpc_log(store: &Arc<Mutex<Store>>) -> Result<Value> {
+    let store = lock_store(store);
+    let lines: Vec<String> = store.jobs.iter().map(job::format_line).collect();
+    Ok(json!({"jobs": store.jobs, "lines": lines}))
+}
+
+fn append_origin_job(store: &Arc<Mutex<Store>>, resp: &Value) -> Result<()> {
+    let Some(v) = resp.get("job") else {
+        return Ok(());
+    };
+    let job: Job = serde_json::from_value(v.clone())?;
+    let mut store = lock_store(store);
+    store.append_job(job)
 }
 
 fn rpc_status(store: &Arc<Mutex<Store>>, mesh: &MeshHandle) -> Result<Value> {
@@ -396,8 +415,19 @@ pub(crate) fn emit_rpc(cmd: &Cmd, v: &Value) -> Result<()> {
             }
             Ok(())
         }
+        Cmd::Log => {
+            if let Some(arr) = v.get("lines").and_then(Value::as_array) {
+                for line in arr {
+                    if let Some(s) = line.as_str() {
+                        println!("{s}");
+                    }
+                }
+            }
+            Ok(())
+        }
         Cmd::Exec { .. } => {
-            if v.get("status").and_then(Value::as_str) == Some("denied") {
+            let status = v.get("status").and_then(Value::as_str);
+            if status == Some("denied") || status == Some("failed") {
                 let reason = v.get("reason").and_then(Value::as_str).unwrap_or("denied");
                 return Err(ClixError::Io(reason.to_string()));
             }

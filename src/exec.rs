@@ -5,8 +5,9 @@ use serde_json::{json, Value};
 
 use crate::error::{ClixError, Result};
 use crate::grant::{self, consume_once};
+use crate::job;
 use crate::store::Store;
-use crate::types::{BodyId, Grant};
+use crate::types::{BodyId, Grant, Job, JobStatus};
 
 /// Run the granted binary. `argv[0]` must be `grant.tool`. Not a shell.
 pub fn run_granted(grant: &Grant, argv: &[String]) -> Result<Output> {
@@ -26,38 +27,86 @@ pub(crate) fn exec_checked(
     if argv.is_empty() {
         return Err(ClixError::Usage("usage: clix <body> <cmd>…".into()));
     }
-    let grant = {
-        let store = lock(store);
-        match grant::check(&store, &argv[0], from) {
-            Ok(g) => g,
+    let (grant, body) = {
+        let s = lock(store);
+        let body = BodyId(s.body_name.clone());
+        match grant::check(&s, &argv[0], from) {
+            Ok(g) => (g, body),
             Err(e) => {
-                return Ok(json!({
-                    "status": "denied",
-                    "reason": e.to_string(),
-                }));
+                drop(s);
+                let reason = e.to_string();
+                let job = job::append(
+                    store,
+                    from.clone(),
+                    body,
+                    argv.to_vec(),
+                    JobStatus::Denied {
+                        reason: reason.clone(),
+                    },
+                )?;
+                return Ok(denied_json(reason, job));
             }
         }
     };
     match run_granted(&grant, argv) {
-        Err(e) => Ok(json!({
-            "status": "denied",
-            "reason": e.to_string(),
-        })),
+        Err(e) => {
+            let reason = e.to_string();
+            let (status, job_status) = match e {
+                ClixError::Io(_) => (
+                    "failed",
+                    JobStatus::Failed {
+                        reason: reason.clone(),
+                    },
+                ),
+                _ => (
+                    "denied",
+                    JobStatus::Denied {
+                        reason: reason.clone(),
+                    },
+                ),
+            };
+            let job = job::append(store, from.clone(), body, argv.to_vec(), job_status)?;
+            Ok(json!({
+                "status": status,
+                "reason": reason,
+                "job": job,
+            }))
+        }
         Ok(out) => {
             let exit = out.status.code().unwrap_or(1);
-            if out.status.success() {
-                let mut store = lock(store);
-                consume_once(&mut store, &grant.tool);
-                store.save()?;
-            }
+            let job_status = JobStatus::Done { exit };
+            let job = {
+                let mut s = lock(store);
+                if out.status.success() {
+                    consume_once(&mut s, &grant.tool);
+                }
+                let job = Job {
+                    id: job::new_id()?,
+                    body,
+                    argv: argv.to_vec(),
+                    from: from.clone(),
+                    status: job_status,
+                };
+                s.append_job(job.clone())?;
+                job
+            };
             Ok(json!({
                 "status": "done",
                 "exit": exit,
                 "stdout": String::from_utf8_lossy(&out.stdout),
                 "stderr": String::from_utf8_lossy(&out.stderr),
+                "job": job,
             }))
         }
     }
+}
+
+fn denied_json(reason: String, job: Job) -> Value {
+    json!({
+        "status": "denied",
+        "reason": reason,
+        "job": job,
+    })
 }
 
 fn lock(store: &Arc<Mutex<Store>>) -> std::sync::MutexGuard<'_, Store> {
