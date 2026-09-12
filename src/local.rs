@@ -356,9 +356,11 @@ async fn rpc_pair_join(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: &Value
     let addr = req
         .get("addr")
         .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| ClixError::Usage("pair join needs addr".into()))?;
-    let peer = pair::pair_join(store.clone(), addr, phrase, &mesh.addr).await?;
+        .filter(|s| !s.is_empty());
+    let peer = match addr {
+        Some(addr) => pair::pair_join(store.clone(), addr, phrase, &mesh.addr).await?,
+        None => pair::pair_join_any(store.clone(), phrase, &mesh.addr).await?,
+    };
     Ok(json!({
         "ok": true,
         "name": peer.name.0,

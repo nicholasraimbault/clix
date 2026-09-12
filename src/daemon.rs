@@ -64,15 +64,13 @@ fn run_daemon() -> Result<()> {
         .map_err(|e| ClixError::Io(e.to_string()))?;
     rt.block_on(async {
         let store = Store::open(&state_dir()?)?;
-        let bind = std::env::var("CLIX_MESH_BIND").unwrap_or_else(|_| "127.0.0.1:0".into());
-        let mesh = MeshListener::bind(&bind).await?;
+        let mesh = MeshListener::bind(&mesh::listen_addr()?).await?;
         serve(Arc::new(Mutex::new(store)), socket_path()?, mesh).await
     })
 }
 
 pub async fn serve_local(store: Arc<Mutex<Store>>, sock: PathBuf) -> Result<()> {
-    let bind = std::env::var("CLIX_MESH_BIND").unwrap_or_else(|_| "127.0.0.1:0".into());
-    let mesh = MeshListener::bind(&bind).await?;
+    let mesh = MeshListener::bind(&mesh::listen_addr()?).await?;
     serve(store, sock, mesh).await
 }
 

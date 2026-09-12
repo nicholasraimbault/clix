@@ -108,6 +108,37 @@ pub async fn pair_join(
     handshake_join(store, stream, phrase, mesh, local_addr).await
 }
 
+/// Join with no addr: try each online Tailscale peer. Tailscale is plumbing, not identity.
+pub async fn pair_join_any(
+    store: Arc<Mutex<Store>>,
+    phrase: &str,
+    local_addr: &str,
+) -> Result<Peer> {
+    let peers = crate::tailscale::tailscale_status()?;
+    let port = crate::tailscale::mesh_port();
+    let mut last = None;
+    for peer in &peers {
+        let addr = format!("{}:{port}", peer.ipv4);
+        let dial = tokio::time::timeout(std::time::Duration::from_secs(2), mesh::dial(&addr)).await;
+        let stream = match dial {
+            Ok(Ok(s)) => s,
+            Ok(Err(e)) => {
+                last = Some(e);
+                continue;
+            }
+            Err(_) => {
+                last = Some(ClixError::Io("no peer answered".into()));
+                continue;
+            }
+        };
+        match handshake_join(store.clone(), stream, phrase, &addr, local_addr).await {
+            Ok(p) => return Ok(p),
+            Err(e) => last = Some(e),
+        }
+    }
+    Err(last.unwrap_or_else(|| ClixError::Io("no online Tailscale peers".into())))
+}
+
 fn phrase_mismatch() -> ClixError {
     ClixError::Io("phrase did not match".into())
 }

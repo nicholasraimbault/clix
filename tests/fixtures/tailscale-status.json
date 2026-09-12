@@ -1,0 +1,49 @@
+{
+  "Version": "1.102.3",
+  "TUN": true,
+  "BackendState": "Running",
+  "HaveNodeKey": true,
+  "TailscaleIPs": [
+    "100.64.0.10",
+    "fd7a:115c:a1e0::10"
+  ],
+  "Self": {
+    "ID": "nSYNTHETIC0000001",
+    "PublicKey": "nodekey:1111111111111111111111111111111111111111111111111111111111111111",
+    "HostName": "laptop",
+    "DNSName": "laptop.tailnet.example.",
+    "OS": "linux",
+    "TailscaleIPs": [
+      "100.64.0.10",
+      "fd7a:115c:a1e0::10"
+    ],
+    "Online": true
+  },
+  "MagicDNSSuffix": "tailnet.example",
+  "Peer": {
+    "nodekey:2222222222222222222222222222222222222222222222222222222222222222": {
+      "ID": "nSYNTHETIC0000002",
+      "PublicKey": "nodekey:2222222222222222222222222222222222222222222222222222222222222222",
+      "HostName": "server",
+      "DNSName": "server.tailnet.example.",
+      "OS": "linux",
+      "TailscaleIPs": [
+        "100.64.0.20",
+        "fd7a:115c:a1e0::20"
+      ],
+      "Online": true
+    },
+    "nodekey:3333333333333333333333333333333333333333333333333333333333333333": {
+      "ID": "nSYNTHETIC0000003",
+      "PublicKey": "nodekey:3333333333333333333333333333333333333333333333333333333333333333",
+      "HostName": "secondary-server",
+      "DNSName": "secondary-server.tailnet.example.",
+      "OS": "linux",
+      "TailscaleIPs": [
+        "100.64.0.30",
+        "fd7a:115c:a1e0::30"
+      ],
+      "Online": true
+    }
+  }
+}

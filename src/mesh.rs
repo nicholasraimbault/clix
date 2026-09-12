@@ -33,10 +33,21 @@ struct MeshInner {
     pair_done: Option<oneshot::Receiver<Result<Peer>>>,
 }
 
-/// Localhost TCP listener. Production Tailscale bind is Task 13.
+/// TCP listener. Production binds Tailscale IPv4 `:7421` (or `CLIX_PORT`).
 pub struct MeshListener {
     listener: TcpListener,
     handle: MeshHandle,
+}
+
+/// Production: this body's Tailscale IPv4 and `CLIX_PORT` (default 7421).
+/// Tests set `CLIX_MESH_BIND` (e.g. `127.0.0.1:0`).
+pub fn listen_addr() -> Result<String> {
+    if let Ok(bind) = std::env::var("CLIX_MESH_BIND") {
+        if !bind.is_empty() {
+            return Ok(bind);
+        }
+    }
+    crate::tailscale::mesh_bind_addr()
 }
 
 impl MeshListener {
