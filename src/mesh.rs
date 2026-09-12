@@ -1,13 +1,24 @@
 use std::sync::{Arc, Mutex};
 
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use hmac::{Hmac, Mac};
+use serde_json::{json, Value};
+use sha2::Sha256;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::oneshot;
 
 use crate::error::{ClixError, Result};
+use crate::exec::exec_checked;
+use crate::pair;
+use crate::store::Store;
 use crate::types::Peer;
 
-/// Shared handle for pairing and (later) mesh exec.
+type HmacSha256 = Hmac<Sha256>;
+
+const OWNER_OPS: &[&str] = &["add", "remove", "allow", "deny", "pair"];
+
+/// Shared handle for pairing and mesh exec.
 #[derive(Clone)]
 pub struct MeshHandle {
     pub addr: String,
@@ -49,16 +60,14 @@ impl MeshListener {
         &self.handle.addr
     }
 
-    pub async fn run(&self) -> Result<()> {
+    pub async fn run(&self, store: Arc<Mutex<Store>>) -> Result<()> {
         loop {
             let (stream, _) = self.listener.accept().await?;
-            let waiter = {
-                let mut inner = lock_inner(&self.handle);
-                inner.pair_tx.take()
-            };
-            if let Some(tx) = waiter {
-                let _ = tx.send(stream);
-            }
+            let handle = self.handle.clone();
+            let store = store.clone();
+            tokio::spawn(async move {
+                let _ = serve_conn(store, handle, stream).await;
+            });
         }
     }
 }
@@ -87,6 +96,10 @@ fn lock_inner(handle: &MeshHandle) -> std::sync::MutexGuard<'_, MeshInner> {
     handle.inner.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+fn lock_store(store: &Arc<Mutex<Store>>) -> std::sync::MutexGuard<'_, Store> {
+    store.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 pub async fn dial(addr: &str) -> Result<TcpStream> {
     Ok(TcpStream::connect(addr).await?)
 }
@@ -109,4 +122,291 @@ pub async fn read_frame(stream: &mut TcpStream) -> Result<Vec<u8>> {
     let mut buf = vec![0u8; len];
     stream.read_exact(&mut buf).await?;
     Ok(buf)
+}
+
+/// POST JSON to a paired body's mesh listener, signed with this body's owner key.
+pub async fn call(addr: &str, owner_sk: &[u8], req: Value) -> Result<Value> {
+    let body = serde_json::to_vec(&req)?;
+    let pk = pair::owner_pk(owner_sk)?;
+    let mac = mesh_mac(&pk, &body)?;
+    let sig = sign_body(owner_sk, &body)?;
+    let mut stream = TcpStream::connect(addr).await?;
+    let head = format!(
+        "POST / HTTP/1.1\r\nHost: {addr}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nX-Clix-Pk: {}\r\nX-Clix-Mac: {}\r\nX-Clix-Sig: {}\r\nConnection: close\r\n\r\n",
+        body.len(),
+        hex_encode(&pk),
+        hex_encode(&mac),
+        hex_encode(&sig),
+    );
+    stream.write_all(head.as_bytes()).await?;
+    stream.write_all(&body).await?;
+    stream.flush().await?;
+    let msg = read_http(&mut stream).await?;
+    let v: Value = if msg.body.is_empty() {
+        json!({})
+    } else {
+        serde_json::from_slice(&msg.body)?
+    };
+    let status = msg.status().unwrap_or(0);
+    if status != 200 || v.get("ok") == Some(&Value::Bool(false)) {
+        let err = v
+            .get("error")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| match status {
+                401 => "unknown peer".into(),
+                0 => "empty mesh response".into(),
+                n => format!("mesh http {n}"),
+            });
+        return Err(ClixError::Io(err));
+    }
+    Ok(v)
+}
+
+async fn serve_conn(
+    store: Arc<Mutex<Store>>,
+    handle: MeshHandle,
+    mut stream: TcpStream,
+) -> Result<()> {
+    let _ = stream.readable().await;
+    let mut peek = [0u8; 4];
+    let n = stream.peek(&mut peek).await.unwrap_or(0);
+    if n >= 4 && looks_http(&peek) {
+        handle_http(store, &mut stream).await
+    } else {
+        let waiter = {
+            let mut inner = lock_inner(&handle);
+            inner.pair_tx.take()
+        };
+        if let Some(tx) = waiter {
+            let _ = tx.send(stream);
+        }
+        Ok(())
+    }
+}
+
+fn looks_http(b: &[u8]) -> bool {
+    b.starts_with(b"POST")
+        || b.starts_with(b"GET ")
+        || b.starts_with(b"PUT ")
+        || b.starts_with(b"HEAD")
+}
+
+async fn handle_http(store: Arc<Mutex<Store>>, stream: &mut TcpStream) -> Result<()> {
+    let msg = read_http(stream).await?;
+    let (status, v) = match dispatch_http(&store, &msg) {
+        Ok(v) => (200, v),
+        Err(e) => {
+            let status = match &e {
+                ClixError::Io(s) if s.contains("unknown") => 401,
+                _ => 403,
+            };
+            (status, json!({"ok": false, "error": e.to_string()}))
+        }
+    };
+    stream.write_all(&http_json(status, &v)?).await?;
+    stream.flush().await?;
+    Ok(())
+}
+
+fn dispatch_http(store: &Arc<Mutex<Store>>, msg: &HttpMsg) -> Result<Value> {
+    if msg.method() != "POST" {
+        return Err(ClixError::Usage("POST only".into()));
+    }
+    let pk = hex_decode(
+        msg.header("x-clix-pk")
+            .ok_or_else(|| ClixError::Io("unknown peer".into()))?,
+    )?;
+    let mac = hex_decode(
+        msg.header("x-clix-mac")
+            .ok_or_else(|| ClixError::Io("unknown peer".into()))?,
+    )?;
+    let sig = hex_decode(
+        msg.header("x-clix-sig")
+            .ok_or_else(|| ClixError::Io("unknown peer".into()))?,
+    )?;
+    let peer = {
+        let store = lock_store(store);
+        store
+            .peers
+            .iter()
+            .find(|p| p.owner_pk == pk)
+            .cloned()
+            .ok_or_else(|| ClixError::Io("unknown peer".into()))?
+    };
+    if mesh_mac(&pk, &msg.body)? != mac || !verify_body(&pk, &msg.body, &sig) {
+        return Err(ClixError::Io("unknown peer".into()));
+    }
+    let req: Value = serde_json::from_slice(&msg.body)?;
+    handle_mesh_req(store, &peer, req)
+}
+
+fn handle_mesh_req(store: &Arc<Mutex<Store>>, peer: &Peer, req: Value) -> Result<Value> {
+    let op = req.get("op").and_then(Value::as_str).unwrap_or("");
+    if OWNER_OPS.contains(&op) {
+        return Err(ClixError::Usage(format!(
+            "{op} is not allowed over the mesh"
+        )));
+    }
+    match op {
+        "exec" => {
+            let argv = json_string_list(req.get("argv"));
+            exec_checked(store, &peer.name, &argv)
+        }
+        "request" | "job_poll" => Ok(json!({"ok": true})),
+        "" => Err(ClixError::Usage("missing op".into())),
+        other => Err(ClixError::Usage(format!("unknown op: {other}"))),
+    }
+}
+
+fn json_string_list(v: Option<&Value>) -> Vec<String> {
+    match v {
+        Some(Value::Array(a)) => a
+            .iter()
+            .filter_map(|x| x.as_str().map(str::to_string))
+            .collect(),
+        Some(Value::String(s)) => vec![s.clone()],
+        _ => Vec::new(),
+    }
+}
+
+fn mesh_mac(owner_pk: &[u8], body: &[u8]) -> Result<Vec<u8>> {
+    let mut mac =
+        HmacSha256::new_from_slice(owner_pk).map_err(|_| ClixError::Io("mesh hmac key".into()))?;
+    mac.update(body);
+    Ok(mac.finalize().into_bytes().to_vec())
+}
+
+fn sign_body(sk: &[u8], body: &[u8]) -> Result<Vec<u8>> {
+    let bytes: [u8; 32] = sk
+        .try_into()
+        .map_err(|_| ClixError::Io("owner key is not a valid ed25519 secret".into()))?;
+    let sk = SigningKey::from_bytes(&bytes);
+    Ok(sk.sign(body).to_bytes().to_vec())
+}
+
+fn verify_body(pk: &[u8], body: &[u8], sig: &[u8]) -> bool {
+    let pk: [u8; 32] = match pk.try_into() {
+        Ok(b) => b,
+        Err(_) => return false,
+    };
+    let sig: [u8; 64] = match sig.try_into() {
+        Ok(b) => b,
+        Err(_) => return false,
+    };
+    let Ok(vk) = VerifyingKey::from_bytes(&pk) else {
+        return false;
+    };
+    vk.verify(body, &Signature::from_bytes(&sig)).is_ok()
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn hex_decode(s: &str) -> Result<Vec<u8>> {
+    if !s.len().is_multiple_of(2) {
+        return Err(ClixError::Io("unknown peer".into()));
+    }
+    (0..s.len())
+        .step_by(2)
+        .map(|i| {
+            u8::from_str_radix(&s[i..i + 2], 16).map_err(|_| ClixError::Io("unknown peer".into()))
+        })
+        .collect()
+}
+
+struct HttpMsg {
+    start: String,
+    headers: Vec<(String, String)>,
+    body: Vec<u8>,
+}
+
+impl HttpMsg {
+    fn method(&self) -> &str {
+        self.start.split_whitespace().next().unwrap_or("")
+    }
+
+    fn status(&self) -> Option<u16> {
+        self.start.split_whitespace().nth(1)?.parse().ok()
+    }
+
+    fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
+    }
+}
+
+async fn read_http(stream: &mut TcpStream) -> Result<HttpMsg> {
+    let mut buf = Vec::new();
+    let mut tmp = [0u8; 1024];
+    let header_end = loop {
+        if let Some(pos) = find_double_crlf(&buf) {
+            break pos;
+        }
+        if buf.len() > 64 * 1024 {
+            return Err(ClixError::Io("http header too large".into()));
+        }
+        let n = stream.read(&mut tmp).await?;
+        if n == 0 {
+            return Err(ClixError::Io("empty mesh response".into()));
+        }
+        buf.extend_from_slice(&tmp[..n]);
+    };
+    let header_text = String::from_utf8_lossy(&buf[..header_end]);
+    let rest = buf[header_end + 4..].to_vec();
+    let mut lines = header_text.split("\r\n");
+    let start = lines.next().unwrap_or("").to_string();
+    let mut headers = Vec::new();
+    for line in lines {
+        if let Some((k, v)) = line.split_once(':') {
+            headers.push((k.trim().to_ascii_lowercase(), v.trim().to_string()));
+        }
+    }
+    let content_len = headers
+        .iter()
+        .find(|(k, _)| k == "content-length")
+        .and_then(|(_, v)| v.parse::<usize>().ok())
+        .unwrap_or(0);
+    if content_len > 1_048_576 {
+        return Err(ClixError::Io("frame too large".into()));
+    }
+    let mut body = rest;
+    while body.len() < content_len {
+        let n = stream.read(&mut tmp).await?;
+        if n == 0 {
+            break;
+        }
+        body.extend_from_slice(&tmp[..n]);
+    }
+    body.truncate(content_len);
+    Ok(HttpMsg {
+        start,
+        headers,
+        body,
+    })
+}
+
+fn find_double_crlf(buf: &[u8]) -> Option<usize> {
+    buf.windows(4).position(|w| w == b"\r\n\r\n")
+}
+
+fn http_json(status: u16, v: &Value) -> Result<Vec<u8>> {
+    let body = serde_json::to_vec(v)?;
+    let reason = match status {
+        200 => "OK",
+        401 => "Unauthorized",
+        403 => "Forbidden",
+        _ => "Error",
+    };
+    let head = format!(
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    let mut out = head.into_bytes();
+    out.extend_from_slice(&body);
+    Ok(out)
 }

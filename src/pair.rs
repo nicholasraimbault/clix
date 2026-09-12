@@ -26,6 +26,8 @@ type HmacSha256 = Hmac<Sha256>;
 struct PairIdentity {
     name: String,
     owner_pk: Vec<u8>,
+    #[serde(default)]
+    addr: Option<String>,
 }
 
 /// Three lowercase words from the 256-word list, joined with `-`.
@@ -80,24 +82,30 @@ pub async fn pair_listen(
     phrase: &str,
 ) -> Result<Peer> {
     let rx = mesh.register_pair();
-    complete_listen(store, rx, phrase).await
+    complete_listen(store, rx, phrase, &mesh.addr).await
 }
 
 pub(crate) async fn complete_listen(
     store: Arc<Mutex<Store>>,
     rx: oneshot::Receiver<TcpStream>,
     phrase: &str,
+    local_addr: &str,
 ) -> Result<Peer> {
     let stream = rx
         .await
         .map_err(|_| ClixError::Io("pair cancelled".into()))?;
-    handshake_listen(store, stream, phrase).await
+    handshake_listen(store, stream, phrase, local_addr).await
 }
 
 /// Dial `mesh` (addr), run SPAKE2, persist the peer.
-pub async fn pair_join(store: Arc<Mutex<Store>>, mesh: &str, phrase: &str) -> Result<Peer> {
+pub async fn pair_join(
+    store: Arc<Mutex<Store>>,
+    mesh: &str,
+    phrase: &str,
+    local_addr: &str,
+) -> Result<Peer> {
     let stream = mesh::dial(mesh).await?;
-    handshake_join(store, stream, phrase, mesh).await
+    handshake_join(store, stream, phrase, mesh, local_addr).await
 }
 
 fn phrase_mismatch() -> ClixError {
@@ -130,6 +138,7 @@ async fn handshake_listen(
     store: Arc<Mutex<Store>>,
     mut stream: TcpStream,
     phrase: &str,
+    local_addr: &str,
 ) -> Result<Peer> {
     let (name, pk) = local_identity(&store)?;
     let (spake, msg_b) = Spake2::<Ed25519Group>::start_b(
@@ -150,10 +159,13 @@ async fn handshake_listen(
         Peer {
             name: BodyId(peer_id.name),
             owner_pk: peer_id.owner_pk,
-            addr: stream.peer_addr().ok().map(|a| a.to_string()),
+            addr: peer_id
+                .addr
+                .filter(|s| !s.is_empty())
+                .or_else(|| stream.peer_addr().ok().map(|a| a.to_string())),
         },
     )?;
-    write_identity(&mut stream, &key, &name, &pk).await?;
+    write_identity(&mut stream, &key, &name, &pk, local_addr).await?;
     Ok(peer)
 }
 
@@ -162,6 +174,7 @@ async fn handshake_join(
     mut stream: TcpStream,
     phrase: &str,
     dial_addr: &str,
+    local_addr: &str,
 ) -> Result<Peer> {
     let (name, pk) = local_identity(&store)?;
     let (spake, msg_a) = Spake2::<Ed25519Group>::start_a(
@@ -176,14 +189,17 @@ async fn handshake_join(
         .await
         .map_err(|_| phrase_mismatch())?;
     let key = spake.finish(&msg_b).map_err(|_| phrase_mismatch())?;
-    write_identity(&mut stream, &key, &name, &pk).await?;
+    write_identity(&mut stream, &key, &name, &pk, local_addr).await?;
     let peer_id = read_identity(&mut stream, &key).await?;
     persist_peer(
         &store,
         Peer {
             name: BodyId(peer_id.name),
             owner_pk: peer_id.owner_pk,
-            addr: Some(dial_addr.to_string()),
+            addr: peer_id
+                .addr
+                .filter(|s| !s.is_empty())
+                .or_else(|| Some(dial_addr.to_string())),
         },
     )
 }
@@ -193,10 +209,12 @@ async fn write_identity(
     key: &[u8],
     name: &str,
     owner_pk: &[u8],
+    addr: &str,
 ) -> Result<()> {
     let payload = serde_json::to_vec(&PairIdentity {
         name: name.to_string(),
         owner_pk: owner_pk.to_vec(),
+        addr: Some(addr.to_string()),
     })?;
     let mut mac =
         HmacSha256::new_from_slice(key).map_err(|_| ClixError::Io("pair hmac key".into()))?;

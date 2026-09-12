@@ -16,7 +16,7 @@ pub use error::ClixError;
 pub use exec::run_granted;
 pub use grant::{add, check, check_at, consume_once, hands, remove, resolve_tool};
 pub use local::client_send;
-pub use mesh::{MeshHandle, MeshListener};
+pub use mesh::{call as mesh_call, MeshHandle, MeshListener};
 pub use pair::{pair_join, pair_listen, phrase};
 pub use paths::{socket_path, state_dir, state_file};
 pub use store::Store;

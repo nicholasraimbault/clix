@@ -10,9 +10,9 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as AsyncBufReader};
 
 use crate::cli::{parse_ampm_naive, Cmd};
 use crate::error::{ClixError, Result};
-use crate::exec::run_granted;
-use crate::grant::{self, consume_once};
-use crate::mesh::MeshHandle;
+use crate::exec::exec_checked;
+use crate::grant;
+use crate::mesh::{self, MeshHandle};
 use crate::pair::{self, hostname};
 use crate::store::Store;
 use crate::types::{BodyId, Schedule};
@@ -103,10 +103,10 @@ async fn handle_rpc(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: Value) ->
         "add" => rpc_add(store, &req),
         "hands" => rpc_hands(store),
         "remove" => rpc_remove(store, &req),
-        "exec" => rpc_exec(store, &req),
+        "exec" => rpc_exec(store, &req).await,
         "status" => rpc_status(store, mesh),
         "pair_start" => rpc_pair_start(store, mesh, &req),
-        "pair_join" => rpc_pair_join(store, &req).await,
+        "pair_join" => rpc_pair_join(store, mesh, &req).await,
         "pair_await" => rpc_pair_await(mesh).await,
         other => Err(ClixError::Usage(format!("unknown op: {other}"))),
     }
@@ -147,7 +147,7 @@ fn rpc_remove(store: &Arc<Mutex<Store>>, req: &Value) -> Result<Value> {
     Ok(json!({"ok": true}))
 }
 
-fn rpc_exec(store: &Arc<Mutex<Store>>, req: &Value) -> Result<Value> {
+async fn rpc_exec(store: &Arc<Mutex<Store>>, req: &Value) -> Result<Value> {
     let body = req
         .get("body")
         .and_then(Value::as_str)
@@ -156,45 +156,21 @@ fn rpc_exec(store: &Arc<Mutex<Store>>, req: &Value) -> Result<Value> {
     if argv.is_empty() {
         return Err(ClixError::Usage("usage: clix <body> <cmd>…".into()));
     }
-    let grant = {
+    let (this, dest, sk) = {
         let store = lock_store(store);
-        if body != store.body_name {
-            return Ok(json!({
-                "status": "denied",
-                "reason": format!("{body} is not this body"),
-            }));
-        }
-        let from = BodyId(store.body_name.clone());
-        match grant::check(&store, &argv[0], &from) {
-            Ok(g) => g,
-            Err(e) => {
-                return Ok(json!({
-                    "status": "denied",
-                    "reason": e.to_string(),
-                }));
-            }
-        }
+        let dest = store.peers.iter().find(|p| p.name.0 == body).cloned();
+        (store.body_name.clone(), dest, store.owner_sk.clone())
     };
-    match run_granted(&grant, &argv) {
-        Err(e) => Ok(json!({
-            "status": "denied",
-            "reason": e.to_string(),
-        })),
-        Ok(out) => {
-            let exit = out.status.code().unwrap_or(1);
-            if out.status.success() {
-                let mut store = lock_store(store);
-                consume_once(&mut store, &grant.tool);
-                store.save()?;
-            }
-            Ok(json!({
-                "status": "done",
-                "exit": exit,
-                "stdout": String::from_utf8_lossy(&out.stdout),
-                "stderr": String::from_utf8_lossy(&out.stderr),
-            }))
-        }
+    if body == this {
+        return exec_checked(store, &BodyId(this), &argv);
     }
+    let Some(addr) = dest.and_then(|p| p.addr) else {
+        return Ok(json!({
+            "status": "denied",
+            "reason": format!("{body} is not this body"),
+        }));
+    };
+    mesh::call(&addr, &sk, json!({"op": "exec", "argv": argv})).await
 }
 
 fn rpc_status(store: &Arc<Mutex<Store>>, mesh: &MeshHandle) -> Result<Value> {
@@ -231,8 +207,9 @@ fn rpc_pair_start(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: &Value) -> 
     mesh.set_pair_done(done_rx);
     let store = store.clone();
     let p = phrase.clone();
+    let local_addr = mesh.addr.clone();
     tokio::spawn(async move {
-        let result = pair::complete_listen(store, rx, &p).await;
+        let result = pair::complete_listen(store, rx, &p, &local_addr).await;
         let _ = done_tx.send(result);
     });
     Ok(json!({
@@ -242,7 +219,7 @@ fn rpc_pair_start(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: &Value) -> 
     }))
 }
 
-async fn rpc_pair_join(store: &Arc<Mutex<Store>>, req: &Value) -> Result<Value> {
+async fn rpc_pair_join(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: &Value) -> Result<Value> {
     apply_body_name(store, rpc_name(req))?;
     let phrase = req
         .get("phrase")
@@ -253,7 +230,7 @@ async fn rpc_pair_join(store: &Arc<Mutex<Store>>, req: &Value) -> Result<Value> 
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
         .ok_or_else(|| ClixError::Usage("pair join needs addr".into()))?;
-    let peer = pair::pair_join(store.clone(), addr, phrase).await?;
+    let peer = pair::pair_join(store.clone(), addr, phrase, &mesh.addr).await?;
     Ok(json!({
         "ok": true,
         "name": peer.name.0,

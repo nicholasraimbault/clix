@@ -83,7 +83,7 @@ pub async fn serve(store: Arc<Mutex<Store>>, sock: PathBuf, mesh: MeshListener) 
     set_owner_mode(&sock)?;
     tokio::select! {
         r = local_loop(store.clone(), mesh_handle, listener) => r,
-        r = mesh.run() => r,
+        r = mesh.run(store.clone()) => r,
     }
 }
 

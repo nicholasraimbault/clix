@@ -3,11 +3,11 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use serde_json::Value;
+use serde_json::{json, Value};
 use tempfile::TempDir;
 use tokio::task::JoinHandle;
 
-use clix::{client_send, serve, ClixError, MeshListener, Store};
+use clix::{client_send, mesh_call, serve, ClixError, MeshListener, Store};
 
 static PAIR_ADDRS: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
 
@@ -19,6 +19,7 @@ pub struct TestDaemon {
     _home: TempDir,
     pub sock: PathBuf,
     mesh_addr: String,
+    owner_sk: Vec<u8>,
     handle: JoinHandle<Result<(), ClixError>>,
 }
 
@@ -34,6 +35,7 @@ impl TestDaemon {
         let mut store = Store::open(home.path()).unwrap();
         store.body_name = name.to_string();
         store.save().unwrap();
+        let owner_sk = store.owner_sk.clone();
         let store = Arc::new(Mutex::new(store));
         let mesh = MeshListener::bind("127.0.0.1:0").await.unwrap();
         let mesh_addr = mesh.local_addr().to_string();
@@ -43,6 +45,7 @@ impl TestDaemon {
             _home: home,
             sock,
             mesh_addr,
+            owner_sk,
             handle,
         }
     }
@@ -50,6 +53,11 @@ impl TestDaemon {
     #[allow(dead_code)]
     pub fn mesh_addr(&self) -> &str {
         &self.mesh_addr
+    }
+
+    #[allow(dead_code)]
+    pub async fn mesh_raw(&self, addr: &str, req: Value) -> Result<Value, ClixError> {
+        mesh_call(addr, &self.owner_sk, req).await
     }
 
     pub async fn rpc(&self, req: Value) -> Result<Value, ClixError> {
@@ -83,6 +91,21 @@ impl TestDaemon {
         }
         result
     }
+}
+
+#[allow(dead_code)]
+pub async fn paired(a: &str, b: &str) -> (TestDaemon, TestDaemon) {
+    let left = TestDaemon::spawn_named(a).await;
+    let right = TestDaemon::spawn_named(b).await;
+    let phrase = left.rpc(json!({"op": "pair_start"})).await.unwrap()["phrase"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    right
+        .rpc(json!({"op": "pair_join", "phrase": phrase}))
+        .await
+        .unwrap();
+    (left, right)
 }
 
 impl Drop for TestDaemon {
