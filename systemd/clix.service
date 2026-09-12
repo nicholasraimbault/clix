@@ -1,0 +1,10 @@
+[Unit]
+Description=Clix sidecar
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/clix daemon
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

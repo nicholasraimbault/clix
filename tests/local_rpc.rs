@@ -26,5 +26,5 @@ fn missing_daemon_is_not_run_locally() {
     let dir = tempfile::tempdir().unwrap();
     let sock = dir.path().join("clix.sock");
     let e = clix::client_send(&sock, json!({"op": "hands"})).unwrap_err();
-    assert_eq!(e.to_string(), "clix daemon is not running");
+    assert_eq!(e.to_string(), "Clix is not running. clix install");
 }

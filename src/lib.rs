@@ -3,6 +3,7 @@ mod daemon;
 mod error;
 mod exec;
 mod grant;
+mod install;
 mod job;
 mod local;
 mod mesh;

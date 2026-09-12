@@ -17,7 +17,7 @@ use crate::store::Store;
 pub fn dispatch(cmd: Cmd) -> Result<()> {
     match cmd {
         Cmd::Daemon => run_daemon(),
-        Cmd::Install => Err(ClixError::Usage("usage: clix install".into())),
+        Cmd::Install => crate::install::install(),
         Cmd::Pair { phrase, name } => dispatch_pair(phrase, name),
         other => {
             let req = local::rpc_from_cmd(&other)?;
