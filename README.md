@@ -1,5 +1,7 @@
 # Clix
 
+**Your machines. The tools you grant.**
+
 Run tools on your other machines without opening a login session.
 
 Pair your machines, then grant the tools you want each one to make available.
