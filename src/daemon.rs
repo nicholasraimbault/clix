@@ -63,31 +63,53 @@ fn run_daemon() -> Result<()> {
         .build()
         .map_err(|e| ClixError::Io(e.to_string()))?;
     rt.block_on(async {
-        let store = Store::open(&state_dir()?)?;
-        let mesh = MeshListener::bind(&mesh::listen_addr()?).await?;
-        serve(Arc::new(Mutex::new(store)), socket_path()?, mesh).await
+        let dir = state_dir()?;
+        let _state_lock = Store::lock_dir(&dir)?;
+        let store = Store::open(&dir)?;
+        serve_inner(Arc::new(Mutex::new(store)), socket_path()?, None).await
     })
 }
 
 pub async fn serve_local(store: Arc<Mutex<Store>>, sock: PathBuf) -> Result<()> {
-    let mesh = MeshListener::bind(&mesh::listen_addr()?).await?;
-    serve(store, sock, mesh).await
+    serve_inner(store, sock, None).await
 }
 
 pub async fn serve(store: Arc<Mutex<Store>>, sock: PathBuf, mesh: MeshListener) -> Result<()> {
-    crate::notify::bind_store(store.clone());
-    crate::tray::spawn(store.clone());
-    let mesh_handle = mesh.handle();
+    serve_inner(store, sock, Some(mesh)).await
+}
+
+async fn serve_inner(
+    store: Arc<Mutex<Store>>,
+    sock: PathBuf,
+    provided: Option<MeshListener>,
+) -> Result<()> {
+    // Acquire the owner listener before recovery changes persistent state.
     prepare_socket_path(&sock)?;
     let listener = UnixListener::bind(&sock)?;
     set_owner_mode(&sock)?;
-    tokio::spawn(mesh::claim_waiting_jobs(
-        store.clone(),
-        mesh_handle.addr.clone(),
-    ));
+    {
+        let mut s = store.lock().unwrap_or_else(|e| e.into_inner());
+        crate::pair::validate_store(&s)?;
+        s.recover_jobs()?;
+    }
+    crate::tray::spawn(store.clone());
+    let handle = provided
+        .as_ref()
+        .map(MeshListener::handle)
+        .unwrap_or_default();
+    let network = async {
+        if let Some(mesh) = provided {
+            mesh.run(store.clone()).await
+        } else {
+            mesh::run_available(store.clone(), handle.clone()).await;
+            Ok(())
+        }
+    };
     tokio::select! {
-        r = local_loop(store.clone(), mesh_handle, listener) => r,
-        r = mesh.run(store.clone()) => r,
+        r=local_loop(store.clone(),handle.clone(),listener)=>r,
+        r=network=>r,
+        _=crate::notify::run(store.clone())=>Ok(()),
+        _=crate::job::dispatch_pending(store.clone(),handle.woke.clone())=>Ok(()),
     }
 }
 

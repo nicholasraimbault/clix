@@ -10,18 +10,28 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as AsyncBufReader};
 
 use crate::cli::{parse_ampm_naive, Cmd};
 use crate::error::{ClixError, Result};
-use crate::exec::exec_checked;
+use crate::exec;
 use crate::grant;
 use crate::job;
-use crate::mesh::{self, MeshHandle};
-use crate::pair::{self, hostname};
+use crate::mesh::MeshHandle;
+use crate::pair;
 use crate::request;
 use crate::store::Store;
-use crate::types::{BodyId, Job, JobStatus, Schedule};
+use crate::types::{BodyId, JobStatus, Schedule};
 
 pub fn client_send(sock: &Path, req: Value) -> Result<Value> {
+    client_send_timeout(sock, req, None)
+}
+
+pub(crate) fn client_send_timeout(
+    sock: &Path,
+    req: Value,
+    timeout: Option<Duration>,
+) -> Result<Value> {
     let no_wait = req.get("no_wait").and_then(Value::as_bool).unwrap_or(false);
     let mut stream = UnixStream::connect(sock).map_err(connect_err)?;
+    stream.set_read_timeout(timeout)?;
+    stream.set_write_timeout(timeout)?;
     let mut payload = serde_json::to_string(&req)?;
     payload.push('\n');
     stream.write_all(payload.as_bytes())?;
@@ -41,7 +51,10 @@ pub fn client_send(sock: &Path, req: Value) -> Result<Value> {
                 .unwrap_or("request failed");
             return Err(ClixError::Io(msg.to_string()));
         }
-        if v.get("status").and_then(Value::as_str) == Some("waiting") && !no_wait {
+        if req["op"] == "exec"
+            && v.get("status").and_then(Value::as_str) == Some("waiting")
+            && !no_wait
+        {
             if let Some(msg) = v.get("waiting").and_then(Value::as_str) {
                 eprintln!("{msg}");
             }
@@ -130,7 +143,7 @@ async fn handle_rpc(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: Value) ->
         "pair_start" => rpc_pair_start(store, mesh, &req),
         "pair_join" => rpc_pair_join(store, mesh, &req).await,
         "pair_await" => rpc_pair_await(store, mesh).await,
-        "request" => rpc_request(store, &req).await,
+        "request" => rpc_request(store, mesh, &req).await,
         "pending" => rpc_pending(store),
         "allow" => rpc_allow(store, &req),
         "deny" => rpc_deny(store),
@@ -142,7 +155,50 @@ fn lock_store(store: &Arc<Mutex<Store>>) -> std::sync::MutexGuard<'_, Store> {
     store.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+fn validate_grant_fields(req: &Value) -> Result<()> {
+    for key in ["once", "weekdays"] {
+        if req.get(key).is_some_and(|v| !v.is_boolean()) {
+            return Err(ClixError::Usage(format!("{key} must be a boolean")));
+        }
+    }
+    for key in ["allow", "days"] {
+        if req.get(key).is_some_and(|v| {
+            !v.is_null() && !v.as_array().is_some_and(|a| a.iter().all(Value::is_string))
+        }) {
+            return Err(ClixError::Usage(format!("{key} must be a list of strings")));
+        }
+    }
+    if req.get("dates").is_some_and(|v| {
+        !v.is_null()
+            && !v.as_array().is_some_and(|a| {
+                a.iter()
+                    .all(|v| v.as_u64().is_some_and(|n| (1..=31).contains(&n)))
+            })
+    }) {
+        return Err(ClixError::Usage(
+            "dates must be a list of dates 1–31".into(),
+        ));
+    }
+    for key in ["for_secs", "until"] {
+        if req
+            .get(key)
+            .is_some_and(|v| !v.is_null() && v.as_u64().is_none())
+        {
+            return Err(ClixError::Usage(format!(
+                "{key} must be a nonnegative integer"
+            )));
+        }
+    }
+    for key in ["from", "to"] {
+        if req.get(key).is_some_and(|v| !v.is_null() && !v.is_string()) {
+            return Err(ClixError::Usage(format!("{key} must be a time")));
+        }
+    }
+    Ok(())
+}
+
 fn rpc_add(store: &Arc<Mutex<Store>>, req: &Value) -> Result<Value> {
+    validate_grant_fields(req)?;
     let tool = req
         .get("tool")
         .and_then(Value::as_str)
@@ -152,8 +208,7 @@ fn rpc_add(store: &Arc<Mutex<Store>>, req: &Value) -> Result<Value> {
     let until = rpc_until(req)?;
     let schedule = rpc_schedule(req)?;
     let mut store = lock_store(store);
-    let grant = grant::add(&mut store, tool, &allow, once, until, schedule)?;
-    store.save()?;
+    let grant = store.update(|s| grant::add(s, tool, &allow, once, until, schedule))?;
     Ok(json!({"ok": true, "tool": grant.tool}))
 }
 
@@ -168,8 +223,7 @@ fn rpc_remove(store: &Arc<Mutex<Store>>, req: &Value) -> Result<Value> {
         .and_then(Value::as_str)
         .ok_or_else(|| ClixError::Usage("usage: clix remove <tool>".into()))?;
     let mut store = lock_store(store);
-    grant::remove(&mut store, tool)?;
-    store.save()?;
+    store.update(|s| grant::remove(s, tool))?;
     Ok(json!({"ok": true}))
 }
 
@@ -182,108 +236,103 @@ async fn rpc_exec<W: AsyncWriteExt + Unpin>(
     let body = req
         .get("body")
         .and_then(Value::as_str)
-        .ok_or_else(|| ClixError::Usage("usage: clix <body> <cmd>…".into()))?;
-    let argv = json_string_list(req.get("argv"));
+        .ok_or_else(|| ClixError::Usage("missing body".into()))?;
+    let argv: Vec<String> =
+        serde_json::from_value(req.get("argv").cloned().unwrap_or(Value::Null))?;
     if argv.is_empty() {
         return Err(ClixError::Usage("usage: clix <body> <cmd>…".into()));
     }
     let no_wait = req.get("no_wait").and_then(Value::as_bool).unwrap_or(false);
-    let (this, dest, sk) = {
-        let store = lock_store(store);
-        let dest = store.peers.iter().find(|p| p.name.0 == body).cloned();
-        (store.body_name.clone(), dest, store.owner_sk.clone())
+    let this = lock_store(store).body_name.clone();
+    let id = if body == this {
+        let id = job::new_id()?;
+        exec::submit(store, &BodyId(this), &argv, id.clone())?;
+        id
+    } else {
+        if !lock_store(store).peers.iter().any(|p| p.name.0 == body) {
+            return Err(ClixError::Usage(format!("{body} is not a paired body")));
+        }
+        job::append(
+            store,
+            BodyId(this),
+            BodyId(body.into()),
+            argv,
+            JobStatus::Queued,
+        )?
+        .id
     };
-    if body == this {
-        let resp = exec_checked(store, &BodyId(this), &argv)?;
-        write_json(writer, &resp).await?;
-        return Ok(());
-    }
-    let Some(addr) = dest.and_then(|p| p.addr) else {
-        write_json(
-            writer,
-            &json!({
-                "status": "denied",
-                "reason": format!("{body} is not this body"),
-            }),
-        )
-        .await?;
-        return Ok(());
-    };
-    match crate::pin::sync_with_peer(store, &sk, &addr, body).await {
-        Ok(()) => {}
-        Err(e) if job::is_unreachable(&e) => {
-            let from = BodyId(this);
-            let dest = BodyId(body.to_string());
-            let waiting = job::append(store, from, dest, argv.clone(), JobStatus::WaitingBody)?;
-            write_json(writer, &job::waiting_json(body, &waiting)).await?;
-            let store = store.clone();
-            let woke = mesh.woke.clone();
-            let body = body.to_string();
-            let sk = sk.clone();
-            if no_wait {
-                tokio::spawn(async move {
-                    let _ = job::wait_for_peer(&store, &woke, &body, &sk, &argv, &waiting).await;
-                });
-                return Ok(());
-            }
-            let resp = job::wait_for_peer(&store, &woke, &body, &sk, &argv, &waiting).await?;
-            write_json(writer, &resp).await?;
+    mesh.wake();
+    let mut waiting_reported = false;
+    loop {
+        lock_store(store).ensure_writable()?;
+        let j = lock_store(store)
+            .jobs
+            .iter()
+            .find(|j| j.id == id)
+            .cloned()
+            .ok_or_else(|| ClixError::Protocol("accepted job disappeared".into()))?;
+        if job::is_terminal(&j.status) || (no_wait && !matches!(j.status, JobStatus::Queued)) {
+            write_json(writer, &job::exec_json(&j)).await?;
             return Ok(());
         }
-        Err(e) => return Err(e),
-    }
-    match mesh::call(&addr, &sk, json!({"op": "exec", "argv": argv})).await {
-        Ok(resp) => {
-            append_origin_job(store, &resp)?;
-            write_json(writer, &resp).await?;
-            Ok(())
+        if matches!(j.status, JobStatus::WaitingBody) && !waiting_reported {
+            write_json(writer, &job::waiting_json(body, &j)).await?;
+            waiting_reported = true;
         }
-        Err(e) if job::is_unreachable(&e) => {
-            let from = BodyId(this);
-            let dest = BodyId(body.to_string());
-            let waiting = job::append(store, from, dest, argv.clone(), JobStatus::WaitingBody)?;
-            write_json(writer, &job::waiting_json(body, &waiting)).await?;
-            let store = store.clone();
-            let woke = mesh.woke.clone();
-            let body = body.to_string();
-            let sk = sk.clone();
-            if no_wait {
-                tokio::spawn(async move {
-                    let _ = job::wait_for_peer(&store, &woke, &body, &sk, &argv, &waiting).await;
-                });
-                Ok(())
-            } else {
-                let resp = job::wait_for_peer(&store, &woke, &body, &sk, &argv, &waiting).await?;
-                write_json(writer, &resp).await?;
-                Ok(())
-            }
-        }
-        Err(e) => Err(e),
+        tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
 
-async fn rpc_request(store: &Arc<Mutex<Store>>, req: &Value) -> Result<Value> {
+async fn rpc_request(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: &Value) -> Result<Value> {
     let tool = req
         .get("tool")
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
         .ok_or_else(|| ClixError::Usage("usage: clix request <body> <tool>".into()))?;
     let body = req.get("body").and_then(Value::as_str).unwrap_or("");
-    let (this, dest, sk) = {
+    let (this, dest) = {
         let store = lock_store(store);
         let dest = store.peers.iter().find(|p| p.name.0 == body).cloned();
-        (store.body_name.clone(), dest, store.owner_sk.clone())
+        (store.body_name.clone(), dest)
     };
     if body.is_empty() || body == this {
         let mut store = lock_store(store);
-        let r = request::upsert(&mut store, BodyId(this), tool)?;
-        store.save()?;
+        let r = store.update(|s| request::upsert(s, BodyId(this), tool))?;
         return Ok(json!({"ok": true, "request": r}));
     }
-    let Some(addr) = dest.and_then(|p| p.addr) else {
-        return Err(ClixError::Usage(format!("{body} is not this body")));
-    };
-    mesh::call(&addr, &sk, json!({"op": "request", "tool": tool})).await
+    let peer = dest.ok_or_else(|| ClixError::Usage(format!("{body} is not a paired body")))?;
+    let id = job::new_id()?;
+    lock_store(store).update(|s| {
+        s.outbound_requests.push(crate::types::OutboundRequest {
+            id: id.clone(),
+            body: peer.name,
+            tool: tool.into(),
+            waiting: false,
+            error: None,
+        });
+        Ok(())
+    })?;
+    mesh.wake();
+    loop {
+        lock_store(store).ensure_writable()?;
+        let pending = lock_store(store)
+            .outbound_requests
+            .iter()
+            .find(|r| r.id == id)
+            .cloned();
+        match pending {
+            None => return Ok(json!({"ok":true,"status":"delivered","request_id":id})),
+            Some(r) => {
+                if let Some(error) = r.error {
+                    return Err(ClixError::Protocol(error));
+                }
+                if r.waiting {
+                    return Ok(json!({"ok":true,"status":"waiting","body":body,"request_id":id}));
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
 }
 
 fn rpc_pending(store: &Arc<Mutex<Store>>) -> Result<Value> {
@@ -292,20 +341,19 @@ fn rpc_pending(store: &Arc<Mutex<Store>>) -> Result<Value> {
 }
 
 fn rpc_allow(store: &Arc<Mutex<Store>>, req: &Value) -> Result<Value> {
+    validate_grant_fields(req)?;
     let allow = json_string_list(req.get("allow"));
     let once = req.get("once").and_then(Value::as_bool).unwrap_or(true);
     let until = rpc_until(req)?;
     let schedule = rpc_schedule(req)?;
     let mut store = lock_store(store);
-    let grant = request::allow(&mut store, &allow, once, until, schedule)?;
-    store.save()?;
+    let grant = store.update(|s| request::allow(s, &allow, once, until, schedule))?;
     Ok(json!({"ok": true, "tool": grant.tool, "once": grant.once}))
 }
 
 fn rpc_deny(store: &Arc<Mutex<Store>>) -> Result<Value> {
     let mut store = lock_store(store);
-    request::deny(&mut store)?;
-    store.save()?;
+    store.update(request::deny)?;
     Ok(json!({"ok": true}))
 }
 
@@ -315,21 +363,13 @@ fn rpc_log(store: &Arc<Mutex<Store>>) -> Result<Value> {
     Ok(json!({"jobs": store.jobs, "lines": lines}))
 }
 
-fn append_origin_job(store: &Arc<Mutex<Store>>, resp: &Value) -> Result<()> {
-    let Some(v) = resp.get("job") else {
-        return Ok(());
-    };
-    let job: Job = serde_json::from_value(v.clone())?;
-    let mut store = lock_store(store);
-    store.append_job(job)
-}
-
 fn rpc_status(store: &Arc<Mutex<Store>>, mesh: &MeshHandle) -> Result<Value> {
     let store = lock_store(store);
     Ok(json!({
         "body": store.body_name,
         "peers": store.peers,
-        "mesh_addr": mesh.addr,
+        "mesh_addr": mesh.addr(),
+        "outbound_requests": store.outbound_requests,
     }))
 }
 
@@ -340,17 +380,26 @@ fn rpc_name(req: &Value) -> Option<&str> {
 }
 
 fn apply_body_name(store: &Arc<Mutex<Store>>, name: Option<&str>) -> Result<()> {
-    let mut store = lock_store(store);
-    if let Some(n) = name {
-        store.body_name = n.to_string();
+    let mut s = lock_store(store);
+    let name = name.unwrap_or(&s.body_name).to_string();
+    pair::validate_name(&name)?;
+    if name != s.body_name && (!s.peers.is_empty() || !s.jobs.is_empty() || !s.grants.is_empty()) {
+        return Err(ClixError::Usage(
+            "cannot rename a body after pairing or granting tools".into(),
+        ));
     }
-    if store.body_name.is_empty() {
-        store.body_name = hostname();
-    }
-    store.save()
+    s.update(|s| {
+        s.body_name = name;
+        pair::validate_store(s)
+    })
 }
 
 fn rpc_pair_start(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: &Value) -> Result<Value> {
+    if mesh.addr().is_empty() {
+        return Err(ClixError::Usage(
+            "Tailscale is off. Start it, then pair.".into(),
+        ));
+    }
     apply_body_name(store, rpc_name(req))?;
     let phrase = pair::phrase();
     let rx = mesh.register_pair();
@@ -358,7 +407,7 @@ fn rpc_pair_start(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: &Value) -> 
     mesh.set_pair_done(done_rx);
     let store = store.clone();
     let p = phrase.clone();
-    let local_addr = mesh.addr.clone();
+    let local_addr = mesh.addr();
     tokio::spawn(async move {
         let result = pair::complete_listen(store, rx, &p, &local_addr).await;
         let _ = done_tx.send(result);
@@ -366,11 +415,16 @@ fn rpc_pair_start(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: &Value) -> 
     Ok(json!({
         "ok": true,
         "phrase": phrase,
-        "addr": mesh.addr,
+        "addr": mesh.addr(),
     }))
 }
 
 async fn rpc_pair_join(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: &Value) -> Result<Value> {
+    if mesh.addr().is_empty() {
+        return Err(ClixError::Usage(
+            "Tailscale is off. Start it, then pair.".into(),
+        ));
+    }
     apply_body_name(store, rpc_name(req))?;
     let phrase = req
         .get("phrase")
@@ -381,8 +435,8 @@ async fn rpc_pair_join(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: &Value
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty());
     let peer = match addr {
-        Some(addr) => pair::pair_join(store.clone(), addr, phrase, &mesh.addr).await?,
-        None => pair::pair_join_any(store.clone(), phrase, &mesh.addr).await?,
+        Some(addr) => pair::pair_join(store.clone(), addr, phrase, &mesh.addr()).await?,
+        None => pair::pair_join_any(store.clone(), phrase, &mesh.addr()).await?,
     };
     Ok(json!({
         "ok": true,
@@ -394,8 +448,7 @@ async fn rpc_pair_await(store: &Arc<Mutex<Store>>, mesh: &MeshHandle) -> Result<
     let rx = mesh.take_pair_done()?;
     match rx.await {
         Ok(Ok(peer)) => {
-            let sk = lock_store(store).owner_sk.clone();
-            crate::pin::sync_after_pair(store, &sk, &peer).await?;
+            pair::pin_after_pair(store, &peer).await?;
             Ok(json!({"ok": true, "name": peer.name.0}))
         }
         Ok(Err(e)) => Err(e),
@@ -416,10 +469,18 @@ fn json_string_list(v: Option<&Value>) -> Vec<String> {
 
 fn rpc_until(req: &Value) -> Result<Option<SystemTime>> {
     if let Some(secs) = req.get("for_secs").and_then(Value::as_u64) {
-        return Ok(Some(SystemTime::now() + Duration::from_secs(secs)));
+        return Ok(Some(
+            SystemTime::now()
+                .checked_add(Duration::from_secs(secs))
+                .ok_or_else(|| ClixError::Usage("grant duration is out of range".into()))?,
+        ));
     }
     if let Some(secs) = req.get("until").and_then(Value::as_u64) {
-        return Ok(Some(UNIX_EPOCH + Duration::from_secs(secs)));
+        return Ok(Some(
+            UNIX_EPOCH
+                .checked_add(Duration::from_secs(secs))
+                .ok_or_else(|| ClixError::Usage("grant expiry is out of range".into()))?,
+        ));
     }
     Ok(None)
 }
@@ -514,7 +575,7 @@ pub(crate) fn rpc_from_cmd(cmd: &Cmd) -> Result<Value> {
             weekdays,
         } => Ok(json!({
             "op": "add",
-            "tool": tool,
+            "tool": crate::grant::resolve_tool(tool)?,
             "allow": allow,
             "once": once,
             "for_secs": for_dur.map(|d| d.as_secs()),
@@ -625,21 +686,62 @@ pub(crate) fn emit_rpc(cmd: &Cmd, v: &Value) -> Result<()> {
                 }
                 return Ok(());
             }
-            if status == Some("denied") || status == Some("failed") {
+            if matches!(status, Some("denied" | "failed" | "uncertain")) {
                 let reason = v.get("reason").and_then(Value::as_str).unwrap_or("denied");
                 return Err(ClixError::Io(reason.to_string()));
             }
-            if let Some(s) = v.get("stdout").and_then(Value::as_str) {
-                print!("{s}");
+            if matches!(status, Some("running" | "queued")) && *no_wait {
+                if let Some(id) = v["job"]["id"].as_str() {
+                    println!("{id}");
+                }
+                return Ok(());
             }
-            if let Some(s) = v.get("stderr").and_then(Value::as_str) {
-                eprint!("{s}");
+            let stdout: Vec<u8> =
+                serde_json::from_value(v["job"].get("stdout").cloned().unwrap_or(json!([])))?;
+            let stderr: Vec<u8> =
+                serde_json::from_value(v["job"].get("stderr").cloned().unwrap_or(json!([])))?;
+            std::io::stdout().lock().write_all(&stdout)?;
+            std::io::stderr().lock().write_all(&stderr)?;
+            let exit =
+                v.get("exit").and_then(Value::as_i64).ok_or_else(|| {
+                    ClixError::Protocol("completed command has no exit status".into())
+                })? as i32;
+            if exit != 0 {
+                return Err(ClixError::ToolExit(exit));
             }
             Ok(())
         }
         Cmd::Status => {
             if let Some(body) = v.get("body").and_then(Value::as_str) {
                 println!("{body}");
+            }
+            let addr = v["mesh_addr"].as_str().filter(|s| !s.is_empty());
+            println!("mesh: {}", addr.unwrap_or("offline"));
+            if let Some(peers) = v["peers"].as_array() {
+                for peer in peers {
+                    println!(
+                        "paired: {} ({})",
+                        peer["name"].as_str().unwrap_or("?"),
+                        peer["addr"].as_str().unwrap_or("address unknown")
+                    );
+                }
+            }
+            if let Some(requests) = v["outbound_requests"].as_array() {
+                for r in requests {
+                    println!(
+                        "request {}: {} wants {} ({})",
+                        r["id"].as_str().unwrap_or("?"),
+                        r["body"].as_str().unwrap_or("?"),
+                        r["tool"].as_str().unwrap_or("?"),
+                        r["error"].as_str().unwrap_or("waiting for delivery")
+                    );
+                }
+            }
+            Ok(())
+        }
+        Cmd::Request { body, tool } => {
+            if v["status"] == "waiting" {
+                eprintln!("{body} is unreachable; request for {tool} is saved and will be delivered when it returns.");
             }
             Ok(())
         }

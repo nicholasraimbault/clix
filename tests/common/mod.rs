@@ -9,6 +9,8 @@ use tokio::task::JoinHandle;
 
 use clix::{client_send, mesh_call, serve, ClixError, MeshListener, Store};
 
+static KEYS: OnceLock<Mutex<HashMap<String, Vec<u8>>>> = OnceLock::new();
+
 static PAIR_ADDRS: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
 
 fn pair_addrs() -> &'static Mutex<HashMap<String, String>> {
@@ -37,6 +39,7 @@ impl TestDaemon {
     pub async fn spawn_named(name: &str) -> Self {
         std::env::set_var("CLIX_NOTIFY", "0");
         std::env::set_var("CLIX_TRAY", "0");
+        std::env::set_var("CLIX_WAIT_POLL", "50ms");
         let home = tempfile::tempdir().unwrap();
         let pin = home.path().join("src");
         std::env::set_var("CLIX_PIN", &pin);
@@ -49,6 +52,16 @@ impl TestDaemon {
         let store = Arc::new(Mutex::new(store));
         let mesh = MeshListener::bind("127.0.0.1:0").await.unwrap();
         let mesh_addr = mesh.local_addr().to_string();
+        KEYS.get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .unwrap()
+            .insert(
+                mesh_addr.clone(),
+                ed25519_dalek::SigningKey::from_bytes(owner_sk.as_slice().try_into().unwrap())
+                    .verifying_key()
+                    .to_bytes()
+                    .to_vec(),
+            );
         let handle = tokio::spawn(serve(store, sock.clone(), mesh));
         wait_until_listening(&sock, &handle).await;
         Self {
@@ -89,6 +102,16 @@ impl TestDaemon {
         let mesh = rebind_mesh(&self.mesh_addr).await;
         let mesh_addr = mesh.local_addr().to_string();
         let sock = self.sock.clone();
+        KEYS.get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .unwrap()
+            .insert(
+                mesh_addr.clone(),
+                ed25519_dalek::SigningKey::from_bytes(owner_sk.as_slice().try_into().unwrap())
+                    .verifying_key()
+                    .to_bytes()
+                    .to_vec(),
+            );
         let handle = tokio::spawn(serve(store, sock.clone(), mesh));
         wait_until_listening(&sock, &handle).await;
         *self.proc.handle.lock().unwrap_or_else(|e| e.into_inner()) = Some(handle);
@@ -112,7 +135,15 @@ impl TestDaemon {
 
     #[allow(dead_code)]
     pub async fn mesh_raw(&self, addr: &str, req: Value) -> Result<Value, ClixError> {
-        mesh_call(addr, &self.owner_sk, req).await
+        let pk = KEYS
+            .get()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .get(addr)
+            .unwrap()
+            .clone();
+        mesh_call(addr, &self.owner_sk, &pk, req).await
     }
 
     pub async fn rpc(&self, req: Value) -> Result<Value, ClixError> {

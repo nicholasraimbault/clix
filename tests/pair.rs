@@ -71,7 +71,15 @@ async fn wrong_phrase_does_not_match() {
         }))
         .await
         .unwrap_err();
-    assert_eq!(e.to_string(), "phrase did not match");
+    // The listener may reject its MAC and close before sending an identity.
+    // The joiner cannot distinguish that EOF from a lost connection.
+    assert!(
+        matches!(
+            e.to_string().as_str(),
+            "phrase did not match" | "pairing did not finish; check the phrase and connection"
+        ),
+        "{e}"
+    );
     let sa = a.rpc(json!({"op": "status"})).await.unwrap();
     let sb = b.rpc(json!({"op": "status"})).await.unwrap();
     assert!(sa["peers"].as_array().unwrap().is_empty());

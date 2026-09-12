@@ -40,15 +40,17 @@ pub fn append(
         argv,
         from,
         status,
+        stdout: Vec::new(),
+        stderr: Vec::new(),
     };
-    let mut store = store.lock().unwrap_or_else(|e| e.into_inner());
-    store.put_job(job.clone())?;
-    Ok(job)
+    put(store, job)
 }
 
 pub fn put(store: &Arc<Mutex<Store>>, job: Job) -> Result<Job> {
-    let mut store = store.lock().unwrap_or_else(|e| e.into_inner());
-    store.put_job(job.clone())?;
+    store
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .put_job(job.clone())?;
     Ok(job)
 }
 
@@ -57,200 +59,219 @@ pub fn asleep_message(body: &str) -> String {
 }
 
 pub fn waiting_json(body: &str, job: &Job) -> Value {
-    json!({
-        "ok": true,
-        "status": "waiting",
-        "waiting": asleep_message(body),
-        "job": job,
-    })
+    json!({"ok": true, "status": "waiting", "waiting": asleep_message(body), "job": job})
 }
 
 pub fn exec_json(job: &Job) -> Value {
     match &job.status {
-        JobStatus::Done { exit } => json!({
-            "status": "done",
-            "exit": exit,
-            "stdout": "",
-            "stderr": "",
-            "job": job,
-        }),
-        JobStatus::Denied { reason } => json!({
-            "status": "denied",
-            "reason": reason,
-            "job": job,
-        }),
-        JobStatus::Failed { reason } => json!({
-            "status": "failed",
-            "reason": reason,
-            "job": job,
-        }),
+        JobStatus::Done { exit } => json!({"status":"done", "exit":exit, "job":job}),
+        JobStatus::Denied { reason } => json!({"status":"denied", "reason":reason, "job":job}),
+        JobStatus::Failed { reason } => json!({"status":"failed", "reason":reason, "job":job}),
+        JobStatus::Uncertain { reason } => {
+            json!({"status":"uncertain", "reason":reason, "job":job})
+        }
         JobStatus::WaitingBody => waiting_json(&job.body.0, job),
-        JobStatus::Running => json!({
-            "status": "running",
-            "job": job,
-        }),
+        JobStatus::Running => json!({"status":"running", "job":job}),
+        JobStatus::Queued => json!({"status":"queued", "job":job}),
     }
 }
 
 pub fn is_terminal(status: &JobStatus) -> bool {
     matches!(
         status,
-        JobStatus::Done { .. } | JobStatus::Denied { .. } | JobStatus::Failed { .. }
+        JobStatus::Done { .. }
+            | JobStatus::Denied { .. }
+            | JobStatus::Failed { .. }
+            | JobStatus::Uncertain { .. }
     )
 }
 
-/// `CLIX_WAIT_POLL` default 2s. Accepts `2`, `2s`, `50ms`.
 pub fn poll_interval() -> Duration {
     let raw = std::env::var("CLIX_WAIT_POLL").unwrap_or_default();
-    parse_poll(&raw).unwrap_or(Duration::from_secs(2))
-}
-
-fn parse_poll(raw: &str) -> Option<Duration> {
-    let s = raw.trim();
-    if s.is_empty() {
-        return None;
-    }
-    if let Some(ms) = s.strip_suffix("ms") {
-        return ms
-            .parse::<u64>()
-            .ok()
-            .map(|n| Duration::from_millis(n.max(1)));
-    }
-    if let Some(rest) = s.strip_suffix('s') {
-        if let Ok(n) = rest.parse::<u64>() {
-            return Some(Duration::from_secs(n.max(1)));
-        }
-        if let Ok(f) = rest.parse::<f64>() {
-            return Some(Duration::from_secs_f64(f.max(0.001)));
-        }
-        return None;
-    }
-    if let Ok(n) = s.parse::<u64>() {
-        return Some(Duration::from_secs(n.max(1)));
-    }
-    s.parse::<f64>()
-        .ok()
-        .map(|f| Duration::from_secs_f64(f.max(0.001)))
+    let seconds = raw
+        .strip_suffix("ms")
+        .and_then(|s| s.parse::<f64>().ok())
+        .map(|n| n / 1000.0)
+        .or_else(|| raw.trim_end_matches('s').parse::<f64>().ok())
+        .unwrap_or(2.0);
+    Duration::from_secs_f64(if seconds.is_finite() {
+        seconds.clamp(0.01, 60.0)
+    } else {
+        2.0
+    })
 }
 
 pub fn is_unreachable(err: &ClixError) -> bool {
-    let ClixError::Io(s) = err else {
-        return false;
-    };
-    let s = s.to_ascii_lowercase();
-    s.contains("connection refused")
-        || s.contains("connection reset")
-        || s.contains("connection aborted")
-        || s.contains("broken pipe")
-        || s.contains("timed out")
-        || s.contains("timeout")
-        || s.contains("network is unreachable")
-        || s.contains("host is unreachable")
-        || s.contains("no route to host")
-        || s.contains("not connected")
-        || s.contains("os error 111")
-        || s.contains("os error 104")
-        || s.contains("os error 110")
-        || s.contains("empty mesh response")
+    matches!(err, ClixError::Unreachable)
 }
 
-/// Finish a waiting/running job destined to `peer`. Keeps stored from/body/argv.
 pub fn apply_peer_result(
     store: &Arc<Mutex<Store>>,
     peer: &BodyId,
     incoming: &Job,
 ) -> Result<Option<Job>> {
     let mut s = store.lock().unwrap_or_else(|e| e.into_inner());
-    let Some(existing) = s.jobs.iter_mut().find(|j| j.id == incoming.id) else {
+    let Some(existing) = s.jobs.iter().find(|j| j.id == incoming.id) else {
         return Ok(None);
     };
-    if existing.body != *peer {
+    if existing.body != *peer || is_terminal(&existing.status) {
         return Ok(None);
     }
-    if !matches!(existing.status, JobStatus::WaitingBody | JobStatus::Running) {
-        return Ok(None);
+    if incoming.body != *peer || incoming.from != existing.from || incoming.argv != existing.argv {
+        return Err(ClixError::Protocol(
+            "peer returned a different job invocation".into(),
+        ));
     }
-    if !is_terminal(&incoming.status) {
-        return Ok(None);
+    if incoming.status == existing.status
+        && incoming.stdout == existing.stdout
+        && incoming.stderr == existing.stderr
+    {
+        return Ok(Some(existing.clone()));
     }
-    existing.status = incoming.status.clone();
-    let out = existing.clone();
-    s.save()?;
-    Ok(Some(out))
+    s.put_job(incoming.clone())?;
+    Ok(Some(incoming.clone()))
 }
 
-/// Retry mesh exec until the body is back or the job is already terminal.
-/// Mesh-retry only while `WaitingBody`. `Running` waits for `job_result`.
-/// Grant check happens on the runner at run time.
-pub async fn wait_for_peer(
-    store: &Arc<Mutex<Store>>,
-    woke: &Notify,
-    body: &str,
-    sk: &[u8],
-    argv: &[String],
-    job: &Job,
-) -> Result<Value> {
-    let dest = BodyId(body.to_string());
+/// One dispatcher owns outbound delivery, including restoration after restart.
+/// Every attempt uses the original durable job ID; the receiver deduplicates it.
+pub async fn dispatch_pending(store: Arc<Mutex<Store>>, woke: Arc<Notify>) {
+    let mut tasks = tokio::task::JoinSet::new();
+    let mut active = std::collections::HashSet::new();
     loop {
-        let retry = {
+        let pending: Vec<Job> = {
             let s = store.lock().unwrap_or_else(|e| e.into_inner());
-            match s.jobs.iter().find(|j| j.id == job.id) {
-                Some(existing) if is_terminal(&existing.status) => {
-                    return Ok(exec_json(existing));
-                }
-                Some(existing) if matches!(existing.status, JobStatus::WaitingBody) => true,
-                _ => false,
-            }
+            s.jobs
+                .iter()
+                .filter(|j| {
+                    j.from.0 == s.body_name && j.body.0 != s.body_name && !is_terminal(&j.status)
+                })
+                .cloned()
+                .collect()
         };
-        if retry {
-            let addr = {
-                let s = store.lock().unwrap_or_else(|e| e.into_inner());
-                s.peers
-                    .iter()
-                    .find(|p| p.name.0 == body)
-                    .and_then(|p| p.addr.clone())
-            };
-            if let Some(addr) = addr {
-                match mesh::call(
-                    &addr,
-                    sk,
-                    json!({"op": "exec", "argv": argv, "job_id": job.id}),
-                )
-                .await
-                {
-                    Ok(resp) => {
-                        let st = resp.get("status").and_then(Value::as_str);
-                        if st != Some("running") && st != Some("waiting") {
-                            if let Some(v) = resp.get("job") {
-                                if let Ok(remote) = serde_json::from_value::<Job>(v.clone()) {
-                                    apply_peer_result(store, &dest, &remote)?;
-                                }
-                            }
-                            if st == Some("done") || st == Some("denied") || st == Some("failed") {
-                                return Ok(resp);
-                            }
-                        }
+        for j in pending {
+            if active.insert(j.id.clone()) {
+                let s = store.clone();
+                tasks.spawn(async move {
+                    if let Err(e) = dispatch_one(&s, &j).await {
+                        eprintln!("could not update job {}: {e}", j.id);
                     }
-                    Err(e) if is_unreachable(&e) => {}
-                    Err(e) => return Err(e),
-                }
+                    j.id
+                });
+            }
+        }
+        let requests = store
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .outbound_requests
+            .clone();
+        for request in requests.into_iter().filter(|r| r.error.is_none()) {
+            let id = format!("request:{}", request.id);
+            if active.insert(id.clone()) {
+                let s = store.clone();
+                tasks.spawn(async move {
+                    if let Err(e) = crate::request::deliver(&s, &request).await {
+                        eprintln!("could not update request {}: {e}", request.id);
+                    }
+                    id
+                });
             }
         }
         tokio::select! {
+            result = tasks.join_next(), if !tasks.is_empty() => {
+                match result {
+                    Some(Ok(id)) => { active.remove(&id); }
+                    Some(Err(e)) => { eprintln!("job dispatcher task failed: {e}"); active.clear(); }
+                    None => {}
+                }
+                // Avoid immediately retrying a reachable running job in a busy loop.
+                tokio::time::sleep(poll_interval()).await;
+            }
             _ = tokio::time::sleep(poll_interval()) => {}
             _ = woke.notified() => {}
         }
     }
 }
 
+async fn dispatch_one(store: &Arc<Mutex<Store>>, job: &Job) -> Result<()> {
+    let (peer, sk) = {
+        let s = store.lock().unwrap_or_else(|e| e.into_inner());
+        (
+            s.peers.iter().find(|p| p.name == job.body).cloned(),
+            s.owner_sk.clone(),
+        )
+    };
+    let outcome = async {
+        let peer = peer.ok_or_else(|| ClixError::Usage(format!("{} is not paired", job.body)))?;
+        let addr = peer.addr.as_deref().ok_or(ClixError::Unreachable)?;
+        let known = mesh::call(
+            addr,
+            &sk,
+            &peer.owner_pk,
+            json!({"op":"job_get","job_id":job.id}),
+        )
+        .await?;
+        if let Some(value) = known.get("job").filter(|v| !v.is_null()) {
+            let existing: Job = serde_json::from_value(value.clone())?;
+            apply_peer_result(store, &peer.name, &existing)?;
+            return Ok(());
+        }
+        {
+            crate::pin::sync_with_peer(store, &sk, addr, &peer.name.0).await?;
+        }
+        let resp = mesh::call(
+            addr,
+            &sk,
+            &peer.owner_pk,
+            json!({"op":"exec","argv":job.argv,"job_id":job.id}),
+        )
+        .await?;
+        let v = resp
+            .get("job")
+            .ok_or_else(|| ClixError::Protocol("peer response is missing its job".into()))?;
+        let received: Job = serde_json::from_value(v.clone())?;
+        apply_peer_result(store, &peer.name, &received)?;
+        Ok(())
+    }
+    .await;
+    if let Err(e) = outcome {
+        let mut s = store.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(existing) = s.jobs.iter().find(|j| j.id == job.id) else {
+            return Ok(());
+        };
+        if is_terminal(&existing.status) {
+            return Ok(());
+        }
+        let mut updated = existing.clone();
+        if is_unreachable(&e) {
+            // A known running job remains running: loss of connectivity is not
+            // evidence that execution stopped. Redelivery still uses the same ID.
+            if !matches!(updated.status, JobStatus::Running) {
+                updated.status = JobStatus::WaitingBody;
+            }
+        } else {
+            updated.status = JobStatus::Failed {
+                reason: e.to_string(),
+            };
+        }
+        if updated.status != existing.status {
+            s.put_job(updated)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn format_line(job: &Job) -> String {
-    let cmd = job.argv.join(" ");
     let tail = match &job.status {
         JobStatus::Done { exit } => format!("exit {exit}"),
         JobStatus::Denied { reason } => format!("denied: {reason}"),
         JobStatus::Failed { reason } => format!("failed: {reason}"),
-        JobStatus::WaitingBody => "waiting".to_string(),
-        JobStatus::Running => "running".to_string(),
+        JobStatus::Uncertain { reason } => format!("uncertain: {reason}"),
+        JobStatus::WaitingBody => "waiting".into(),
+        JobStatus::Running => "running".into(),
+        JobStatus::Queued => "queued".into(),
     };
-    format!("{} {cmd} on {}  {tail}", job.from, job.body)
+    format!(
+        "{:?}  {} {:?} on {}  {tail}",
+        job.id, job.from, job.argv, job.body
+    )
 }

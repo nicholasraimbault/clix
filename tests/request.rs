@@ -113,3 +113,47 @@ async fn server_cannot_deny() {
         .unwrap_err();
     assert!(!e.to_string().is_empty());
 }
+
+#[tokio::test]
+async fn local_request_can_be_allowed_once() {
+    let daemon = common::TestDaemon::spawn_named("laptop").await;
+    daemon
+        .rpc(json!({"op":"request", "body":"laptop", "tool":"true"}))
+        .await
+        .unwrap();
+    daemon.rpc(json!({"op":"allow"})).await.unwrap();
+    let run = daemon
+        .rpc(json!({"op":"exec", "body":"laptop", "argv":["true"]}))
+        .await
+        .unwrap();
+    assert_eq!(run["exit"], 0);
+    assert!(daemon.rpc(json!({"op":"hands"})).await.unwrap()["hands"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+}
+
+#[tokio::test]
+async fn request_redelivery_after_owner_denial_does_not_recreate_prompt() {
+    let (laptop, server) = paired("laptop", "server").await;
+    let request = json!({"op":"request", "tool":"true", "request_id":"delivery-one"});
+    server
+        .mesh_raw(laptop.mesh_addr(), request.clone())
+        .await
+        .unwrap();
+    laptop.rpc(json!({"op":"deny"})).await.unwrap();
+    server.mesh_raw(laptop.mesh_addr(), request).await.unwrap();
+    assert!(
+        laptop.rpc(json!({"op":"pending"})).await.unwrap()["requests"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(server
+        .mesh_raw(
+            laptop.mesh_addr(),
+            json!({"op":"request", "tool":"false", "request_id":"delivery-one"})
+        )
+        .await
+        .is_err());
+}

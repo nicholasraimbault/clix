@@ -1,469 +1,700 @@
-use std::collections::BTreeMap;
-use std::fs;
-use std::io::Read;
-use std::path::{Path, PathBuf};
+//! Content-based replication. All file operations stay beneath an opened root.
+//! Replaced/deleted versions are retained locally in .clix-recovery so a
+//! concurrent writer's inode is never silently discarded by publication.
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs::{self, File};
+use std::io::{Read, Write};
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::error::{ClixError, Result};
+use crate::store::Store;
+use crate::types::Peer;
+use rustix::fs::{Mode, OFlags, RenameFlags, ResolveFlags};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-use crate::error::{ClixError, Result};
-use crate::store::{PinIndex, Store};
-use crate::types::Peer;
-
-struct FileMeta {
+const RECOVERY: &str = ".clix-recovery";
+const MAX_FILE: u64 = 16 * 1024 * 1024;
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Fingerprint {
     hash: String,
-    mtime: SystemTime,
+    mode: u32,
+}
+type Manifest = BTreeMap<String, Fingerprint>;
+#[derive(Deserialize)]
+struct Listing {
+    files: Manifest,
+    baseline: Manifest,
+}
+#[derive(Clone)]
+struct Change {
+    path: String,
+    expected: Option<Fingerprint>,
+    new: Option<Fingerprint>,
+    to_remote: bool,
 }
 
-/// Default `~/src`, override `CLIX_PIN`.
 pub fn pin_dir() -> PathBuf {
-    if let Ok(p) = std::env::var("CLIX_PIN") {
-        if !p.is_empty() {
-            return PathBuf::from(p);
-        }
-    }
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
-    PathBuf::from(home).join("src")
+    std::env::var_os("CLIX_PIN")
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("src"))
 }
-
-pub fn pin_root(store: &Store) -> PathBuf {
-    store
-        .pin_dir
-        .clone()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or_else(pin_dir)
+pub fn pin_root(s: &Store) -> PathBuf {
+    s.pin_dir.clone().unwrap_or_else(pin_dir)
 }
-
-/// Two-way copy between local pin trees. Conflict if both wrote since last sync.
-/// Both stores record the same last-sync timestamp on success.
-pub fn sync(
-    local_store: &mut Store,
-    local: &Path,
-    remote_store: &mut Store,
-    remote: &Path,
-) -> Result<()> {
-    let local_files = scan(local)?;
-    let remote_files = scan(remote)?;
-    let local_name = body_name(local_store);
-    let remote_name = body_name(remote_store);
-    let (to_remote, to_local) = plan(
-        &local_files,
-        &remote_files,
-        &local_store.pin_index,
-        &local_name,
-        &remote_name,
-    )?;
-    for rel in &to_remote {
-        copy_rel(local, remote, rel)?;
-    }
-    for rel in &to_local {
-        copy_rel(remote, local, rel)?;
-    }
-    let last_sync = now_millis();
-    let local_synced = scan(local)?;
-    let remote_synced = scan(remote)?;
-    record_index(local_store, &local_synced, last_sync)?;
-    record_index(remote_store, &remote_synced, last_sync)
+fn key(pk: &[u8]) -> String {
+    hex(pk)
 }
-
-pub async fn sync_with_peers(store: Arc<Mutex<Store>>) -> Result<()> {
-    let (peers, sk) = {
-        let s = lock_store(&store);
-        (s.peers.clone(), s.owner_sk.clone())
-    };
-    for peer in peers {
-        let Some(addr) = peer.addr.clone() else {
-            continue;
-        };
-        sync_with_peer(&store, &sk, &addr, &peer.name.0).await?;
-    }
-    Ok(())
+fn lock(s: &Arc<Mutex<Store>>) -> std::sync::MutexGuard<'_, Store> {
+    s.lock().unwrap_or_else(|e| e.into_inner())
 }
-
-pub async fn sync_with_peer(
-    store: &Arc<Mutex<Store>>,
-    owner_sk: &[u8],
-    addr: &str,
-    peer_name: &str,
-) -> Result<()> {
-    match sync_with_peer_inner(store, owner_sk, addr, peer_name).await {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            if is_conflict(&e) {
-                remember_conflict(store, &e);
-            }
-            Err(e)
-        }
-    }
-}
-
-async fn sync_with_peer_inner(
-    store: &Arc<Mutex<Store>>,
-    owner_sk: &[u8],
-    addr: &str,
-    peer_name: &str,
-) -> Result<()> {
-    let local_root = {
-        let s = lock_store(store);
-        pin_root(&s)
-    };
-    let local_files = scan(&local_root)?;
-    let list = crate::mesh::call(addr, owner_sk, json!({"op": "pin_list"})).await?;
-    let remote_files = files_from_list(&list)?;
-    let (to_remote, to_local) = {
-        let s = lock_store(store);
-        let local_name = body_name(&s);
-        plan(
-            &local_files,
-            &remote_files,
-            &s.pin_index,
-            &local_name,
-            peer_name,
-        )?
-    };
-    for rel in &to_remote {
-        let bytes = fs::read(safe_join(&local_root, rel)?)?;
-        let meta = local_files
-            .get(rel)
-            .ok_or_else(|| ClixError::Io(format!("pin missing {rel}")))?;
-        crate::mesh::call(
-            addr,
-            owner_sk,
-            json!({
-                "op": "pin_put",
-                "path": rel,
-                "hash": meta.hash,
-                "mtime": mtime_millis(meta.mtime),
-                "content": hex_encode(&bytes),
-            }),
-        )
-        .await?;
-    }
-    for rel in &to_local {
-        let v = crate::mesh::call(addr, owner_sk, json!({"op": "pin_get", "path": rel})).await?;
-        let content = hex_decode(v.get("content").and_then(Value::as_str).unwrap_or(""))?;
-        let dest = safe_join(&local_root, rel)?;
-        if let Some(parent) = dest.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(&dest, content)?;
-        if let Some(ms) = v.get("mtime").and_then(Value::as_u64) {
-            set_mtime(&dest, millis_to_time(ms))?;
-        }
-    }
-    let last_sync = now_millis();
-    crate::mesh::call(
-        addr,
-        owner_sk,
-        json!({"op": "pin_commit", "last_sync": last_sync}),
-    )
-    .await?;
-    let synced = scan(&local_root)?;
-    let mut s = lock_store(store);
-    record_index(&mut s, &synced, last_sync)
-}
-
-/// After pair, 401/unknown peer is the only pin failure mapped to Ok (the
-/// other sidecar may not have persisted us yet). I/O, decode, and conflict
-/// still surface.
-pub async fn sync_after_pair(store: &Arc<Mutex<Store>>, sk: &[u8], peer: &Peer) -> Result<()> {
-    let Some(addr) = peer.addr.as_deref() else {
-        return Ok(());
-    };
-    match sync_with_peer(store, sk, addr, &peer.name.0).await {
-        Ok(()) => Ok(()),
-        Err(e) if is_unknown_peer(&e) => Ok(()),
-        Err(e) => Err(e),
-    }
-}
-
-pub(crate) fn rpc_list(store: &Store) -> Result<Value> {
-    let files: Vec<Value> = scan(&pin_root(store))?
-        .into_iter()
-        .map(|(path, meta)| {
-            json!({
-                "path": path,
-                "hash": meta.hash,
-                "mtime": mtime_millis(meta.mtime),
-            })
-        })
-        .collect();
-    Ok(json!({"ok": true, "files": files}))
-}
-
-pub(crate) fn rpc_get(store: &Store, req: &Value) -> Result<Value> {
-    let rel = req.get("path").and_then(Value::as_str).unwrap_or("");
-    let path = safe_join(&pin_root(store), rel)?;
-    let bytes = fs::read(&path)?;
-    let mtime = fs::metadata(&path)?.modified().unwrap_or(UNIX_EPOCH);
-    Ok(json!({
-        "ok": true,
-        "path": rel,
-        "hash": hash_bytes(&bytes),
-        "mtime": mtime_millis(mtime),
-        "content": hex_encode(&bytes),
-    }))
-}
-
-pub(crate) fn rpc_put(store: &Store, req: &Value) -> Result<Value> {
-    let rel = req.get("path").and_then(Value::as_str).unwrap_or("");
-    let content = hex_decode(req.get("content").and_then(Value::as_str).unwrap_or(""))?;
-    let dest = safe_join(&pin_root(store), rel)?;
-    if let Some(parent) = dest.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(&dest, content)?;
-    if let Some(ms) = req.get("mtime").and_then(Value::as_u64) {
-        set_mtime(&dest, millis_to_time(ms))?;
-    }
-    Ok(json!({"ok": true}))
-}
-
-pub(crate) fn rpc_commit(store: &mut Store, req: &Value) -> Result<Value> {
-    let last_sync = req
-        .get("last_sync")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| ClixError::Io("pin_commit missing last_sync".into()))?;
-    let files = scan(&pin_root(store))?;
-    record_index(store, &files, last_sync)?;
-    Ok(json!({"ok": true}))
-}
-
-pub(crate) fn is_conflict(e: &ClixError) -> bool {
-    matches!(e, ClixError::PinConflict { .. }) || e.to_string().contains("Not merging")
-}
-
-fn is_unknown_peer(e: &ClixError) -> bool {
-    e.to_string().contains("unknown peer")
-}
-
-fn remember_conflict(store: &Arc<Mutex<Store>>, e: &ClixError) {
-    let mut s = lock_store(store);
-    s.pin_index.last_error = Some(e.to_string());
-    let _ = s.save();
-}
-
-fn body_name(store: &Store) -> String {
-    if store.body_name.is_empty() {
-        "this".into()
-    } else {
-        store.body_name.clone()
-    }
-}
-
-fn plan(
-    local: &BTreeMap<String, FileMeta>,
-    remote: &BTreeMap<String, FileMeta>,
-    index: &PinIndex,
-    local_name: &str,
-    remote_name: &str,
-) -> Result<(Vec<String>, Vec<String>)> {
-    let mut paths: Vec<&str> = local
-        .keys()
-        .chain(remote.keys())
-        .map(|s| s.as_str())
-        .collect();
-    paths.sort_unstable();
-    paths.dedup();
-    let mut to_remote = Vec::new();
-    let mut to_local = Vec::new();
-    for path in paths {
-        match (local.get(path), remote.get(path)) {
-            (Some(_), None) => to_remote.push(path.to_string()),
-            (None, Some(_)) => to_local.push(path.to_string()),
-            (Some(l), Some(r)) if l.hash == r.hash => {}
-            (Some(l), Some(r)) => {
-                let l_new = changed_since(l.mtime, index.last_sync);
-                let r_new = changed_since(r.mtime, index.last_sync);
-                // Both wrote since last successful sync: stop. Do not invent a merge.
-                if l_new && r_new {
-                    return Err(conflict(path, local_name, remote_name));
-                }
-                if l_new {
-                    to_remote.push(path.to_string());
-                } else if r_new {
-                    to_local.push(path.to_string());
-                } else {
-                    return Err(conflict(path, local_name, remote_name));
-                }
-            }
-            (None, None) => {}
-        }
-    }
-    Ok((to_remote, to_local))
-}
-
 fn conflict(path: &str, a: &str, b: &str) -> ClixError {
     ClixError::PinConflict {
         path: format!("src/{path}"),
-        a: a.to_string(),
-        b: b.to_string(),
+        a: a.into(),
+        b: b.into(),
     }
 }
-
-fn changed_since(mtime: SystemTime, last_sync: Option<u64>) -> bool {
-    match last_sync {
-        None => true,
-        Some(ms) => mtime_millis(mtime) > ms,
+fn changed(path: &str) -> ClixError {
+    ClixError::PinConflict {
+        path: format!("src/{path}"),
+        a: "scanned version".into(),
+        b: "current version".into(),
     }
 }
-
-fn scan(root: &Path) -> Result<BTreeMap<String, FileMeta>> {
-    let mut out = BTreeMap::new();
-    if !root.exists() {
-        return Ok(out);
+fn os(e: rustix::io::Errno) -> ClixError {
+    std::io::Error::from(e).into()
+}
+fn valid_path(rel: &str) -> Result<()> {
+    if rel.is_empty()
+        || Path::new(rel)
+            .components()
+            .any(|c| !matches!(c, Component::Normal(_)))
+        || rel.split('/').any(|c| c == RECOVERY)
+    {
+        return Err(ClixError::Protocol("invalid pin path".into()));
     }
-    scan_dir(root, root, &mut out)?;
-    Ok(out)
+    Ok(())
 }
 
-fn scan_dir(root: &Path, dir: &Path, out: &mut BTreeMap<String, FileMeta>) -> Result<()> {
-    for ent in fs::read_dir(dir)? {
-        let ent = ent?;
-        let path = ent.path();
-        let ft = ent.file_type()?;
-        if ft.is_dir() {
-            scan_dir(root, &path, out)?;
-        } else if ft.is_file() {
-            let rel = path
-                .strip_prefix(root)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .replace('\\', "/");
-            if rel.is_empty() {
+struct Tree {
+    root: File,
+    path: PathBuf,
+}
+impl Tree {
+    fn open(path: &Path) -> Result<Self> {
+        fs::create_dir_all(path)?;
+        let root: File = rustix::fs::open(
+            path,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(os)?
+        .into();
+        Ok(Self {
+            root,
+            path: fs::canonicalize(path)?,
+        })
+    }
+    fn open_rel(&self, rel: &str, flags: OFlags) -> Result<File> {
+        let fd = rustix::fs::openat2(
+            &self.root,
+            rel,
+            flags | OFlags::CLOEXEC | OFlags::NOFOLLOW,
+            Mode::empty(),
+            ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS,
+        )
+        .map_err(os)?;
+        Ok(fd.into())
+    }
+    fn read(&self, path: &str) -> Result<Option<(Fingerprint, Vec<u8>)>> {
+        valid_path(path)?;
+        let fd = match rustix::fs::openat2(
+            &self.root,
+            path,
+            OFlags::RDONLY | OFlags::NONBLOCK | OFlags::CLOEXEC,
+            Mode::empty(),
+            ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS,
+        ) {
+            Ok(fd) => fd,
+            Err(rustix::io::Errno::NOENT) => return Ok(None),
+            Err(e) => return Err(os(e)),
+        };
+        let mut file: File = fd.into();
+        let meta = file.metadata()?;
+        if !meta.is_file() {
+            return Err(ClixError::Protocol(format!(
+                "pin supports regular files only: {path}"
+            )));
+        }
+        let mut bytes = Vec::new();
+        Read::by_ref(&mut file)
+            .take(MAX_FILE + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > MAX_FILE {
+            return Err(ClixError::Protocol(format!(
+                "pin file exceeds 16 MiB: {path}"
+            )));
+        }
+        let now = file.metadata()?;
+        if meta.len() != now.len() || meta.modified()? != now.modified()? {
+            return Err(changed(path));
+        }
+        Ok(Some((
+            fingerprint(&bytes, now.permissions().mode() & 0o777),
+            bytes,
+        )))
+    }
+    fn scan(&self) -> Result<Manifest> {
+        self.check_recovery()?;
+        let mut result = Manifest::new();
+        self.scan_dir(&self.root, "", &mut result)?;
+        Ok(result)
+    }
+    fn check_recovery(&self) -> Result<()> {
+        let recovery = match rustix::fs::openat2(
+            &self.root,
+            RECOVERY,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+            Mode::empty(),
+            ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS,
+        ) {
+            Ok(fd) => File::from(fd),
+            Err(rustix::io::Errno::NOENT) => return Ok(()),
+            Err(e) => return Err(os(e)),
+        };
+        for ent in rustix::fs::Dir::read_from(&recovery).map_err(os)? {
+            let ent = ent.map_err(os)?;
+            let name = ent
+                .file_name()
+                .to_str()
+                .map_err(|_| ClixError::Protocol("invalid recovery receipt name".into()))?;
+            if !name.ends_with(".json") {
                 continue;
             }
-            let hash = hash_file(&path)?;
-            let mtime = fs::metadata(&path)?.modified().unwrap_or(UNIX_EPOCH);
-            out.insert(rel, FileMeta { hash, mtime });
+            let file: File = rustix::fs::openat(
+                &recovery,
+                name,
+                OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK,
+                Mode::empty(),
+            )
+            .map_err(os)?
+            .into();
+            let receipt: Value = serde_json::from_reader(file.take(65536))?;
+            if receipt["state"] != "retained" {
+                return Err(changed(&format!(
+                    "{}; owner must review {RECOVERY}/{name} before syncing",
+                    receipt["path"].as_str().unwrap_or("unknown path")
+                )));
+            }
+            let version = receipt["version"].as_str().ok_or_else(|| changed(name))?;
+            if version.contains('/') || matches!(version, "." | "..") {
+                return Err(changed(name));
+            }
+            let mut saved: File = rustix::fs::openat(
+                &recovery,
+                version,
+                OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK,
+                Mode::empty(),
+            )
+            .map_err(os)?
+            .into();
+            if !saved.metadata()?.is_file() {
+                return Err(changed(name));
+            }
+            let mut bytes = Vec::new();
+            Read::by_ref(&mut saved)
+                .take(MAX_FILE + 1)
+                .read_to_end(&mut bytes)?;
+            let expected: Fingerprint = serde_json::from_value(receipt["expected"].clone())?;
+            if fingerprint(&bytes, saved.metadata()?.permissions().mode() & 0o777) != expected {
+                return Err(changed(&format!(
+                    "{}; retained version changed, review {RECOVERY}/{name}",
+                    receipt["path"].as_str().unwrap_or("unknown path")
+                )));
+            }
         }
+        Ok(())
     }
+
+    fn scan_dir(&self, dir: &File, prefix: &str, out: &mut Manifest) -> Result<()> {
+        for ent in rustix::fs::Dir::read_from(dir).map_err(os)? {
+            let ent = ent.map_err(os)?;
+            let name = ent
+                .file_name()
+                .to_str()
+                .map_err(|_| ClixError::Protocol("pin requires UTF-8 filenames".into()))?;
+            if matches!(name, "." | "..") || (prefix.is_empty() && name == RECOVERY) {
+                continue;
+            }
+            let path = if prefix.is_empty() {
+                name.into()
+            } else {
+                format!("{prefix}/{name}")
+            };
+            match ent.file_type() {
+                rustix::fs::FileType::Directory => self.scan_dir(
+                    &self.open_rel(&path, OFlags::RDONLY | OFlags::DIRECTORY)?,
+                    &path,
+                    out,
+                )?,
+                rustix::fs::FileType::RegularFile => {
+                    let (fp, _) = self.read(&path)?.ok_or_else(|| changed(&path))?;
+                    out.insert(path, fp);
+                }
+                _ => {
+                    return Err(ClixError::Protocol(format!(
+                        "unsupported pin entry (symlink or special file): {path}"
+                    )))
+                }
+            }
+        }
+        Ok(())
+    }
+    fn parent(&self, path: &str) -> Result<(File, String)> {
+        valid_path(path)?;
+        let mut parts: Vec<&str> = path.split('/').collect();
+        let name = parts.pop().unwrap().to_string();
+        let mut parent = self.root.try_clone()?;
+        for part in parts {
+            match rustix::fs::mkdirat(&parent, part, Mode::from_raw_mode(0o755)) {
+                Ok(()) => parent.sync_all()?,
+                Err(rustix::io::Errno::EXIST) => {}
+                Err(e) => return Err(os(e)),
+            }
+            parent = rustix::fs::openat2(
+                &parent,
+                part,
+                OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+                Mode::empty(),
+                ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS,
+            )
+            .map_err(os)?
+            .into();
+        }
+        Ok((parent, name))
+    }
+    fn apply(&self, change: &Change, bytes: Option<&[u8]>, store: &Store) -> Result<()> {
+        self.check_recovery()?;
+        if let Some(new) = &change.new {
+            let data = bytes.ok_or_else(|| ClixError::Protocol("pin content missing".into()))?;
+            if new.mode & !0o777 != 0 || fingerprint(data, new.mode) != *new {
+                return Err(ClixError::Protocol(
+                    "invalid pin content hash or mode".into(),
+                ));
+            }
+        }
+        let current = self.read(&change.path)?.map(|v| v.0);
+        if current == change.new {
+            return Ok(());
+        } // Retry after publication before acknowledgement.
+        if current != change.expected {
+            return Err(changed(&change.path));
+        }
+        let destination = self.path.join(&change.path);
+        for grant in &store.grants {
+            let binary =
+                fs::canonicalize(&grant.binary).unwrap_or(std::path::absolute(&grant.binary)?);
+            if binary == destination {
+                return Err(ClixError::Protocol(format!("pin would replace granted binary {}. Remove its grant on this machine before syncing, then review and add it again.", grant.tool)));
+            }
+        }
+        let (parent, name) = self.parent(&change.path)?;
+        match rustix::fs::mkdirat(&self.root, RECOVERY, Mode::from_raw_mode(0o700)) {
+            Ok(()) | Err(rustix::io::Errno::EXIST) => {}
+            Err(e) => return Err(os(e)),
+        }
+        let recovery = self.open_rel(RECOVERY, OFlags::RDONLY | OFlags::DIRECTORY)?;
+        self.root.sync_all()?;
+        let version = crate::job::new_id()?;
+        let receipt_name = format!("{version}.json");
+        if change.expected.is_some() {
+            let receipt = json!({"path":change.path,"expected":change.expected,"replacement":change.new,"version":version,"state":"pending"});
+            write_receipt(&recovery, &receipt_name, &receipt)?;
+        }
+        if let Some(new) = &change.new {
+            let mut file: File = rustix::fs::openat(
+                &recovery,
+                &version,
+                OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::from_raw_mode(0o600),
+            )
+            .map_err(os)?
+            .into();
+            file.write_all(bytes.unwrap())?;
+            file.set_permissions(fs::Permissions::from_mode(new.mode))?;
+            file.sync_all()?;
+            let flag = if current.is_some() {
+                RenameFlags::EXCHANGE
+            } else {
+                RenameFlags::NOREPLACE
+            };
+            rustix::fs::renameat_with(&recovery, &version, &parent, &name, flag)
+                .map_err(|_| changed(&change.path))?;
+        } else {
+            rustix::fs::renameat_with(&parent, &name, &recovery, &version, RenameFlags::NOREPLACE)
+                .map_err(|_| changed(&change.path))?;
+        }
+        parent.sync_all()?;
+        recovery.sync_all()?;
+        if let Some(expected) = &change.expected {
+            // The displaced inode remains recoverable, including writes through
+            // handles opened before the rename. Never delete it on success.
+            let mut previous: File = rustix::fs::openat(
+                &recovery,
+                &version,
+                OFlags::RDONLY | OFlags::NOFOLLOW,
+                Mode::empty(),
+            )
+            .map_err(os)?
+            .into();
+            let mut content = Vec::new();
+            Read::by_ref(&mut previous)
+                .take(MAX_FILE + 1)
+                .read_to_end(&mut content)?;
+            let actual = fingerprint(&content, previous.metadata()?.permissions().mode() & 0o777);
+            if actual != *expected {
+                return Err(changed(&format!("{} (review {RECOVERY}/{receipt_name}; previous version retained at {RECOVERY}/{version})", change.path)));
+            }
+            let receipt = json!({"path":change.path,"expected":expected,"replacement":change.new,"version":version,"state":"retained"});
+            write_receipt(&recovery, &receipt_name, &receipt)?;
+        }
+        Ok(())
+    }
+}
+fn write_receipt(dir: &File, name: &str, value: &Value) -> Result<()> {
+    let tmp = format!("{}.tmp", crate::job::new_id()?);
+    let mut file: File = rustix::fs::openat(
+        dir,
+        &tmp,
+        OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW,
+        Mode::from_raw_mode(0o600),
+    )
+    .map_err(os)?
+    .into();
+    file.write_all(&serde_json::to_vec(value)?)?;
+    file.sync_all()?;
+    rustix::fs::renameat(dir, &tmp, dir, name).map_err(os)?;
+    dir.sync_all()?;
     Ok(())
 }
 
-fn copy_rel(from: &Path, to: &Path, rel: &str) -> Result<()> {
-    let src = safe_join(from, rel)?;
-    let dst = safe_join(to, rel)?;
-    if let Some(parent) = dst.parent() {
-        fs::create_dir_all(parent)?;
+fn fingerprint(bytes: &[u8], mode: u32) -> Fingerprint {
+    Fingerprint {
+        hash: hex(&Sha256::digest(bytes)),
+        mode,
     }
-    fs::copy(&src, &dst)?;
-    if let Ok(mtime) = fs::metadata(&src).and_then(|m| m.modified()) {
-        set_mtime(&dst, mtime)?;
-    }
-    Ok(())
 }
-
-fn set_mtime(path: &Path, t: SystemTime) -> Result<()> {
-    fs::File::open(path)?.set_modified(t)?;
-    Ok(())
-}
-
-fn millis_to_time(ms: u64) -> SystemTime {
-    UNIX_EPOCH + Duration::from_millis(ms)
-}
-
-fn record_index(
-    store: &mut Store,
-    files: &BTreeMap<String, FileMeta>,
-    last_sync: u64,
-) -> Result<()> {
-    store.pin_index.last_sync = Some(last_sync);
-    store.pin_index.hashes = files
-        .iter()
-        .map(|(k, v)| (k.clone(), v.hash.clone()))
-        .collect();
-    store.pin_index.last_error = None;
-    store.save()
-}
-
-fn files_from_list(v: &Value) -> Result<BTreeMap<String, FileMeta>> {
-    let mut out = BTreeMap::new();
-    let Some(arr) = v.get("files").and_then(Value::as_array) else {
-        return Ok(out);
-    };
-    for f in arr {
-        let path = f.get("path").and_then(Value::as_str).unwrap_or("");
-        if path.is_empty() {
-            continue;
-        }
-        let hash = f
-            .get("hash")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        let mtime = f.get("mtime").and_then(Value::as_u64).unwrap_or(0);
-        out.insert(
-            path.to_string(),
-            FileMeta {
-                hash,
-                mtime: UNIX_EPOCH + Duration::from_millis(mtime),
-            },
-        );
-    }
-    Ok(out)
-}
-
-fn safe_join(root: &Path, rel: &str) -> Result<PathBuf> {
-    if rel.is_empty()
-        || Path::new(rel).is_absolute()
-        || rel.split(['/', '\\']).any(|s| s == ".." || s.is_empty())
-    {
-        return Err(ClixError::Io("invalid pin path".into()));
-    }
-    Ok(root.join(rel))
-}
-
-fn hash_file(path: &Path) -> Result<String> {
-    let mut hasher = Sha256::new();
-    let mut f = fs::File::open(path)?;
-    let mut buf = [0u8; 8192];
-    loop {
-        let n = f.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-    Ok(hex_encode(&hasher.finalize()))
-}
-
-fn hash_bytes(data: &[u8]) -> String {
-    hex_encode(&Sha256::digest(data))
-}
-
-fn hex_encode(bytes: &[u8]) -> String {
+fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
-
-fn hex_decode(s: &str) -> Result<Vec<u8>> {
-    if !s.len().is_multiple_of(2) {
-        return Err(ClixError::Io("invalid pin content".into()));
+fn unhex(s: &str) -> Result<Vec<u8>> {
+    if !s.len().is_multiple_of(2) || s.len() as u64 > MAX_FILE * 2 {
+        return Err(ClixError::Protocol("invalid pin content".into()));
     }
-    (0..s.len())
-        .step_by(2)
-        .map(|i| {
-            u8::from_str_radix(&s[i..i + 2], 16)
-                .map_err(|_| ClixError::Io("invalid pin content".into()))
+    s.as_bytes()
+        .chunks_exact(2)
+        .map(|p| {
+            let h = (p[0] as char).to_digit(16);
+            let l = (p[1] as char).to_digit(16);
+            match (h, l) {
+                (Some(h), Some(l)) => Ok((h * 16 + l) as u8),
+                _ => Err(ClixError::Protocol("invalid pin content".into())),
+            }
         })
         .collect()
 }
 
-fn now_millis() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+fn plan(
+    local: &Manifest,
+    remote: &Manifest,
+    baseline: &Manifest,
+    a: &str,
+    b: &str,
+) -> Result<(Vec<Change>, Manifest)> {
+    let paths: BTreeSet<_> = local
+        .keys()
+        .chain(remote.keys())
+        .chain(baseline.keys())
+        .cloned()
+        .collect();
+    let mut changes = Vec::new();
+    let mut merged = Manifest::new();
+    for path in paths {
+        valid_path(&path)?;
+        let l = local.get(&path);
+        let r = remote.get(&path);
+        let base = baseline.get(&path);
+        let selected = if l == r {
+            l
+        } else if l == base {
+            changes.push(Change {
+                path: path.clone(),
+                expected: l.cloned(),
+                new: r.cloned(),
+                to_remote: false,
+            });
+            r
+        } else if r == base {
+            changes.push(Change {
+                path: path.clone(),
+                expected: r.cloned(),
+                new: l.cloned(),
+                to_remote: true,
+            });
+            l
+        } else {
+            return Err(conflict(&path, a, b));
+        };
+        if let Some(fp) = selected {
+            merged.insert(path, fp.clone());
+        }
+    }
+    Ok((changes, merged))
+}
+fn baseline(s: &Store, peer: &[u8]) -> Manifest {
+    s.pin_index
+        .peers
+        .get(&key(peer))
+        .cloned()
+        .unwrap_or_default()
+}
+fn common_baseline(
+    a: Manifest,
+    b: Manifest,
+    local: &Manifest,
+    remote: &Manifest,
+) -> Result<Manifest> {
+    if a == b {
+        Ok(a)
+    } else if local == remote {
+        Ok(local.clone())
+    } else {
+        Err(conflict(
+            "(sync baseline)",
+            "local baseline",
+            "peer baseline",
+        ))
+    }
+}
+fn record(s: &mut Store, pk: &[u8], manifest: Manifest) -> Result<()> {
+    s.update(|s| {
+        s.pin_index.hashes = manifest
+            .iter()
+            .map(|(p, f)| (p.clone(), f.hash.clone()))
+            .collect();
+        s.pin_index.peers.insert(key(pk), manifest);
+        s.pin_index.last_sync = Some(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64,
+        );
+        s.pin_index.last_error = None;
+        Ok(())
+    })
 }
 
-fn mtime_millis(t: SystemTime) -> u64 {
-    t.duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+pub fn sync(a: &mut Store, ap: &Path, b: &mut Store, bp: &Path) -> Result<()> {
+    let at = Tree::open(ap)?;
+    let bt = Tree::open(bp)?;
+    let af = at.scan()?;
+    let bf = bt.scan()?;
+    let apk = crate::pair::owner_pk(&a.owner_sk)?;
+    let bpk = crate::pair::owner_pk(&b.owner_sk)?;
+    let base = common_baseline(baseline(a, &bpk), baseline(b, &apk), &af, &bf)?;
+    let (changes, merged) = plan(&af, &bf, &base, &a.body_name, &b.body_name)?;
+    for c in &changes {
+        let (source, dest) = if c.to_remote { (&at, &bt) } else { (&bt, &at) };
+        let data = source.read(&c.path)?;
+        if data.as_ref().map(|v| &v.0) != c.new.as_ref() {
+            return Err(changed(&c.path));
+        }
+        dest.apply(
+            c,
+            data.as_ref().map(|v| v.1.as_slice()),
+            if c.to_remote { b } else { a },
+        )?;
+    }
+    if at.scan()? != merged || bt.scan()? != merged {
+        return Err(changed("(tree changed during sync)"));
+    }
+    record(a, &bpk, merged.clone())?;
+    record(b, &apk, merged)
 }
 
-fn lock_store(store: &Arc<Mutex<Store>>) -> std::sync::MutexGuard<'_, Store> {
-    store.lock().unwrap_or_else(|e| e.into_inner())
+pub async fn sync_with_peer(
+    store: &Arc<Mutex<Store>>,
+    sk: &[u8],
+    addr: &str,
+    name: &str,
+) -> Result<()> {
+    let (peer, root, local_name) = {
+        let s = lock(store);
+        (
+            s.peers
+                .iter()
+                .find(|p| p.name.0 == name)
+                .cloned()
+                .ok_or_else(|| ClixError::Usage(format!("{name} is not paired")))?,
+            pin_root(&s),
+            s.body_name.clone(),
+        )
+    };
+    let tree = Tree::open(&root)?;
+    let local = tree.scan()?;
+    let remote: Listing = serde_json::from_value(
+        crate::mesh::call(addr, sk, &peer.owner_pk, json!({"op":"pin_list"})).await?,
+    )?;
+    let base = common_baseline(
+        baseline(&lock(store), &peer.owner_pk),
+        remote.baseline,
+        &local,
+        &remote.files,
+    )?;
+    let (changes, merged) = plan(&local, &remote.files, &base, &local_name, name)?;
+    for c in &changes {
+        if c.to_remote {
+            let data = tree.read(&c.path)?;
+            if data.as_ref().map(|v| &v.0) != c.new.as_ref() {
+                return Err(changed(&c.path));
+            }
+            crate::mesh::call(addr,sk,&peer.owner_pk,json!({"op":"pin_put","path":c.path,"expected":c.expected,"new":c.new,"content":data.as_ref().map(|v|hex(&v.1))})).await?;
+        } else {
+            let bytes = if c.new.is_some() {
+                let v = crate::mesh::call(
+                    addr,
+                    sk,
+                    &peer.owner_pk,
+                    json!({"op":"pin_get","path":c.path,"expected":c.new}),
+                )
+                .await?;
+                Some(unhex(
+                    v.get("content")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| ClixError::Protocol("missing pin content".into()))?,
+                )?)
+            } else {
+                None
+            };
+            tree.apply(c, bytes.as_deref(), &lock(store))?;
+        }
+    }
+    if tree.scan()? != merged {
+        return Err(changed("(tree changed during sync)"));
+    }
+    crate::mesh::call(
+        addr,
+        sk,
+        &peer.owner_pk,
+        json!({"op":"pin_commit","manifest":merged}),
+    )
+    .await?;
+    if tree.scan()? != merged {
+        return Err(changed("(tree changed during commit)"));
+    }
+    record(&mut lock(store), &peer.owner_pk, merged)
+}
+pub async fn sync_after_pair(store: &Arc<Mutex<Store>>, sk: &[u8], peer: &Peer) -> Result<()> {
+    sync_with_peer(
+        store,
+        sk,
+        peer.addr.as_deref().ok_or(ClixError::Unreachable)?,
+        &peer.name.0,
+    )
+    .await
+}
+pub(crate) fn rpc_list(s: &Store, peer: &Peer) -> Result<Value> {
+    Ok(json!({"files":Tree::open(&pin_root(s))?.scan()?,"baseline":baseline(s,&peer.owner_pk)}))
+}
+pub(crate) fn rpc_get(s: &Store, req: &Value) -> Result<Value> {
+    let path = req
+        .get("path")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ClixError::Protocol("missing pin path".into()))?;
+    let expected: Fingerprint =
+        serde_json::from_value(req.get("expected").cloned().unwrap_or(Value::Null))?;
+    let (actual, bytes) = Tree::open(&pin_root(s))?
+        .read(path)?
+        .ok_or_else(|| changed(path))?;
+    if actual != expected {
+        return Err(changed(path));
+    }
+    Ok(json!({"content":hex(&bytes)}))
+}
+pub(crate) fn rpc_put(s: &Store, req: &Value) -> Result<Value> {
+    let path = req
+        .get("path")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ClixError::Protocol("missing pin path".into()))?
+        .to_string();
+    if req.get("expected").is_none() || req.get("new").is_none() {
+        return Err(ClixError::Protocol(
+            "pin write requires version preconditions".into(),
+        ));
+    }
+    let expected: Option<Fingerprint> = serde_json::from_value(req["expected"].clone())?;
+    let new: Option<Fingerprint> = serde_json::from_value(req["new"].clone())?;
+    let bytes = req
+        .get("content")
+        .and_then(Value::as_str)
+        .map(unhex)
+        .transpose()?;
+    Tree::open(&pin_root(s))?.apply(
+        &Change {
+            path,
+            expected,
+            new,
+            to_remote: false,
+        },
+        bytes.as_deref(),
+        s,
+    )?;
+    Ok(json!({"ok":true}))
+}
+pub(crate) fn rpc_commit(s: &mut Store, peer: &Peer, req: &Value) -> Result<Value> {
+    let manifest: Manifest =
+        serde_json::from_value(req.get("manifest").cloned().unwrap_or(Value::Null))?;
+    if Tree::open(&pin_root(s))?.scan()? != manifest {
+        return Err(changed("(tree changed before commit)"));
+    }
+    record(s, &peer.owner_pk, manifest)?;
+    Ok(json!({"ok":true}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn confined_reads_reject_symlinks_and_writes_require_the_scanned_version() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("file"), "outside").unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.path().join("link")).unwrap();
+        let tree = Tree::open(root.path()).unwrap();
+        let state_dir = tempfile::tempdir().unwrap();
+        let state = Store::open(state_dir.path()).unwrap();
+        assert!(tree.read("link/file").is_err());
+        fs::write(root.path().join("ordinary"), "base").unwrap();
+        let old = tree.read("ordinary").unwrap().unwrap().0;
+        fs::write(root.path().join("ordinary"), "owner edit after scan").unwrap();
+        let change = Change {
+            path: "ordinary".into(),
+            expected: Some(old),
+            new: Some(fingerprint(b"remote edit", 0o644)),
+            to_remote: false,
+        };
+        assert!(tree.apply(&change, Some(b"remote edit"), &state).is_err());
+        assert_eq!(
+            fs::read(root.path().join("ordinary")).unwrap(),
+            b"owner edit after scan"
+        );
+        assert_eq!(fs::read(outside.path().join("file")).unwrap(), b"outside");
+    }
 }

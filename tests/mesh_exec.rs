@@ -1,215 +1,156 @@
 mod common;
-
+use common::{paired, TestDaemon};
 use serde_json::json;
 
-use common::{paired, TestDaemon};
-
 #[tokio::test]
-async fn server_runs_adb_after_laptop_add() {
+async fn server_runs_granted_binary_and_denies_bash() {
     let (laptop, server) = paired("laptop", "server").await;
     laptop.rpc(json!({"op":"add","tool":"true"})).await.unwrap();
-    let v = server
-        .rpc(json!({"op":"exec","body":"laptop","argv":["true"]}))
-        .await
-        .unwrap();
-    assert_eq!(v["exit"], 0);
-}
-
-#[tokio::test]
-async fn server_cannot_add_on_laptop() {
-    let (laptop, server) = paired("laptop", "server").await;
-    let e = server
-        .mesh_raw(laptop.mesh_addr(), json!({"op":"add","tool":"true"}))
-        .await
-        .unwrap_err();
-    assert!(e.to_string().contains("not allowed") || e.to_string().contains("owner"));
-}
-
-#[tokio::test]
-async fn bash_denied_without_add() {
-    let (laptop, server) = paired("laptop", "server").await;
-    let _ = laptop.mesh_addr();
-    let v = server
-        .rpc(json!({"op":"exec","body":"laptop","argv":["bash"]}))
-        .await
-        .unwrap();
-    assert_eq!(v["status"], "denied");
-    assert!(v["reason"].as_str().unwrap().contains("not added"));
-}
-
-#[tokio::test]
-async fn mesh_rejects_owner_ops() {
-    let (laptop, server) = paired("laptop", "server").await;
-    for op in ["remove", "allow", "deny", "pair"] {
-        let mut req = json!({"op": op});
-        if op == "remove" {
-            req["tool"] = json!("true");
-        }
-        let e = server.mesh_raw(laptop.mesh_addr(), req).await.unwrap_err();
-        let s = e.to_string();
-        assert!(
-            s.contains("not allowed") || s.contains("owner"),
-            "{op}: {s}"
-        );
-    }
-}
-
-#[tokio::test]
-async fn mesh_allows_request_and_job_poll() {
-    let (laptop, server) = paired("laptop", "server").await;
-    for op in ["request", "job_poll"] {
+    assert_eq!(
         server
-            .mesh_raw(laptop.mesh_addr(), json!({"op": op}))
+            .rpc(json!({"op":"exec","body":"laptop","argv":["true"]}))
             .await
-            .expect(op);
-    }
-}
-
-#[tokio::test]
-async fn mesh_from_is_the_authenticated_peer() {
-    let (laptop, server) = paired("laptop", "server").await;
-    laptop
-        .rpc(json!({"op": "add", "tool": "true", "allow": ["laptop"]}))
-        .await
-        .unwrap();
-    let v = server
-        .rpc(json!({"op": "exec", "body": "laptop", "argv": ["true"]}))
-        .await
-        .unwrap();
-    assert_eq!(v["status"], "denied");
-    assert!(v["reason"].as_str().unwrap().contains("not allowed"));
-}
-
-#[tokio::test]
-async fn job_poll_marks_waiting_claimed() {
-    let (laptop, server) = paired("laptop", "server").await;
-    laptop.rpc(json!({"op":"add","tool":"true"})).await.unwrap();
-    laptop.kill().await;
-    let w = server
-        .rpc(json!({"op":"exec","body":"laptop","argv":["true"],"no_wait":true}))
-        .await
-        .unwrap();
-    assert_eq!(w["status"], "waiting");
-    let v = laptop
-        .mesh_raw(server.mesh_addr(), json!({"op": "job_poll"}))
-        .await
-        .unwrap();
-    let jobs = v["jobs"].as_array().expect("jobs");
-    assert_eq!(jobs.len(), 1, "{v}");
-    assert_eq!(jobs[0]["status"], "Running");
-    let v2 = laptop
-        .mesh_raw(server.mesh_addr(), json!({"op": "job_poll"}))
-        .await
-        .unwrap();
-    assert!(
-        v2["jobs"].as_array().map(|a| a.is_empty()).unwrap_or(false),
-        "claimed jobs must not be returned again: {v2}"
+            .unwrap()["exit"],
+        0
+    );
+    assert_eq!(
+        server
+            .rpc(json!({"op":"exec","body":"laptop","argv":["bash"]}))
+            .await
+            .unwrap()["status"],
+        "denied"
     );
 }
 
 #[tokio::test]
-async fn job_result_only_finishes_job_destined_to_that_peer() {
+async fn mesh_rejects_all_owner_and_result_injection_operations() {
     let (laptop, server) = paired("laptop", "server").await;
-    laptop.rpc(json!({"op":"add","tool":"true"})).await.unwrap();
-    laptop.kill().await;
-    let w = server
-        .rpc(json!({"op":"exec","body":"laptop","argv":["true"],"no_wait":true}))
+    for op in [
+        "add",
+        "remove",
+        "allow",
+        "deny",
+        "pair",
+        "pair_start",
+        "pair_join",
+        "job_poll",
+        "job_result",
+    ] {
+        let e = server
+            .mesh_raw(
+                laptop.mesh_addr(),
+                json!({"op":op,"tool":"true","from":"laptop","job":{"status":{"Done":{"exit":0}}}}),
+            )
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("not allowed"), "{op}: {e}");
+    }
+    assert!(laptop.rpc(json!({"op":"hands"})).await.unwrap()["hands"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert!(laptop.rpc(json!({"op":"log"})).await.unwrap()["jobs"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+}
+
+#[tokio::test]
+async fn mesh_request_uses_authenticated_sender() {
+    let (laptop, server) = paired("laptop", "server").await;
+    server
+        .mesh_raw(
+            laptop.mesh_addr(),
+            json!({"op":"request","tool":"true","from":"laptop"}),
+        )
         .await
         .unwrap();
-    let id = w["job"]["id"].as_str().expect("job id").to_string();
+    let pending = laptop.rpc(json!({"op":"pending"})).await.unwrap();
+    assert_eq!(pending["requests"][0]["from"], "server");
+}
 
+#[tokio::test]
+async fn duplicate_invocation_returns_same_job_and_cannot_change_argv() {
+    let (laptop, server) = paired("laptop", "server").await;
+    laptop
+        .rpc(json!({"op":"add","tool":"true","once":true}))
+        .await
+        .unwrap();
+    let req = json!({"op":"exec","argv":["true"],"job_id":"redelivery","from":"laptop"});
+    let first = server
+        .mesh_raw(laptop.mesh_addr(), req.clone())
+        .await
+        .unwrap();
+    assert_eq!(first["job"]["from"], "server");
+    for _ in 0..50 {
+        let next = server
+            .mesh_raw(laptop.mesh_addr(), req.clone())
+            .await
+            .unwrap();
+        if next["status"] == "done" {
+            assert_eq!(next["exit"], 0);
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    let duplicate = server.mesh_raw(laptop.mesh_addr(), req).await.unwrap();
+    assert_eq!(duplicate["status"], "done");
+    assert!(server
+        .mesh_raw(
+            laptop.mesh_addr(),
+            json!({"op":"exec","argv":["false"],"job_id":"redelivery"})
+        )
+        .await
+        .is_err());
+    let jobs = laptop.rpc(json!({"op":"log"})).await.unwrap();
+    assert_eq!(jobs["jobs"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn third_peer_cannot_read_another_callers_job_or_spoof_allow_from() {
+    let (laptop, server) = paired("laptop", "server").await;
     let phone = TestDaemon::spawn_named("phone").await;
-    let phrase = server.rpc(json!({"op": "pair_start"})).await.unwrap()["phrase"]
+    let phrase = laptop.rpc(json!({"op":"pair_start"})).await.unwrap()["phrase"]
         .as_str()
         .unwrap()
         .to_string();
     phone
-        .rpc(json!({"op": "pair_join", "phrase": phrase}))
+        .rpc(json!({"op":"pair_join","phrase":phrase}))
         .await
         .unwrap();
-    phone
-        .mesh_raw(
-            server.mesh_addr(),
-            json!({
-                "op": "job_result",
-                "result": {
-                    "job": {
-                        "id": id,
-                        "body": "laptop",
-                        "argv": ["true"],
-                        "from": "phone",
-                        "status": {"Done": {"exit": 0}}
-                    }
-                }
-            }),
-        )
-        .await
-        .unwrap();
-
-    let log = server.rpc(json!({"op": "log"})).await.unwrap();
-    let job = log["jobs"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|j| j["id"] == id)
-        .expect("job");
-    assert_eq!(job["from"], "server", "{job}");
-    assert_ne!(job["status"], json!({"Done": {"exit": 0}}), "{job}");
-}
-
-#[tokio::test]
-async fn job_result_from_field_does_not_become_caller() {
-    let (laptop, server) = paired("laptop", "server").await;
-    laptop.rpc(json!({"op":"add","tool":"true"})).await.unwrap();
-    laptop.kill().await;
-    let w = server
-        .rpc(json!({"op":"exec","body":"laptop","argv":["true"],"no_wait":true}))
-        .await
-        .unwrap();
-    let id = w["job"]["id"].as_str().expect("job id").to_string();
     laptop
+        .rpc(json!({"op":"add","tool":"true","allow":["phone"]}))
+        .await
+        .unwrap();
+    let denied = server
         .mesh_raw(
-            server.mesh_addr(),
-            json!({
-                "op": "job_result",
-                "result": {
-                    "job": {
-                        "id": id,
-                        "body": "laptop",
-                        "argv": ["true"],
-                        "from": "laptop",
-                        "status": {"Done": {"exit": 0}}
-                    }
-                }
-            }),
+            laptop.mesh_addr(),
+            json!({"op":"exec","argv":["true"],"job_id":"restricted","from":"phone"}),
         )
         .await
         .unwrap();
-    let log = server.rpc(json!({"op": "log"})).await.unwrap();
-    let job = log["jobs"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|j| j["id"] == id)
-        .expect("job");
-    assert_eq!(
-        job["from"], "server",
-        "from in mesh JSON must not replace caller: {job}"
-    );
-    assert_eq!(job["status"], json!({"Done": {"exit": 0}}), "{job}");
+    assert_eq!(denied["status"], "denied");
+    assert!(denied["reason"].as_str().unwrap().contains("not allowed"));
+    let private = phone
+        .mesh_raw(
+            laptop.mesh_addr(),
+            json!({"op":"job_get","job_id":"restricted"}),
+        )
+        .await
+        .unwrap();
+    assert!(private["job"].is_null());
 }
 
 #[tokio::test]
 async fn unknown_peer_is_dropped() {
     let laptop = TestDaemon::spawn_named("laptop").await;
     let stranger = TestDaemon::spawn_named("stranger").await;
-    let e = stranger
-        .mesh_raw(laptop.mesh_addr(), json!({"op": "exec", "argv": ["true"]}))
+    assert!(stranger
+        .mesh_raw(laptop.mesh_addr(), json!({"op":"exec","argv":["true"]}))
         .await
-        .unwrap_err();
-    let s = e.to_string();
-    assert!(
-        s.contains("unknown") || s.contains("dropped") || s.contains("peer"),
-        "{s}"
-    );
+        .is_err());
+    assert!(laptop.rpc(json!({"op":"log"})).await.unwrap()["jobs"]
+        .as_array()
+        .unwrap()
+        .is_empty());
 }

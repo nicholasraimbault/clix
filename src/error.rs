@@ -9,6 +9,14 @@ pub enum ClixError {
     Io(String),
     #[error("{0}")]
     Json(String),
+    #[error("{tool} already has a reserved single-use run")]
+    GrantBusy { tool: String },
+    #[error("command exited {0}")]
+    ToolExit(i32),
+    #[error("body is unreachable")]
+    Unreachable,
+    #[error("{0}")]
+    Protocol(String),
     #[error("Clix is not running. clix install")]
     NoDaemon,
     #[error("no such tool: {tool}")]

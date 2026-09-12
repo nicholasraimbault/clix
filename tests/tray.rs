@@ -19,6 +19,8 @@ fn store_with_one_request() -> Store {
 fn store_with_running_job() -> Store {
     let mut store = empty_store();
     store.jobs.push(Job {
+        stdout: Vec::new(),
+        stderr: Vec::new(),
         id: "job-1".into(),
         body: BodyId("laptop".into()),
         argv: vec!["true".into()],

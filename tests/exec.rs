@@ -1,15 +1,11 @@
 use std::path::PathBuf;
 
-use clix::{add, check, consume_once, run_granted, BodyId, Grant, Store};
-
-fn empty_store() -> Store {
-    let dir = tempfile::tempdir().unwrap();
-    Store::open(dir.path()).unwrap()
-}
+use clix::{run_granted, Grant};
 
 #[test]
 fn runs_binary_not_shell() {
     let g = Grant {
+        reservation: None,
         tool: "true".into(),
         binary: PathBuf::from("/usr/bin/true"),
         allow_from: None,
@@ -24,6 +20,7 @@ fn runs_binary_not_shell() {
 #[test]
 fn rejects_argv0_mismatch() {
     let g = Grant {
+        reservation: None,
         tool: "true".into(),
         binary: PathBuf::from("/usr/bin/true"),
         allow_from: None,
@@ -33,14 +30,4 @@ fn rejects_argv0_mismatch() {
     };
     let e = run_granted(&g, &["bash".into(), "-c".into(), "echo pwned".into()]).unwrap_err();
     assert!(e.to_string().contains("not added") || e.to_string().contains("not granted"));
-}
-
-#[test]
-fn once_removed_after_success() {
-    let mut s = empty_store();
-    add(&mut s, "true", &[], true, None, None).unwrap();
-    let g = check(&s, "true", &BodyId("server".into())).unwrap();
-    run_granted(&g, &["true".into()]).unwrap();
-    consume_once(&mut s, "true");
-    assert!(check(&s, "true", &BodyId("server".into())).is_err());
 }

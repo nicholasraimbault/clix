@@ -19,7 +19,7 @@ pub fn resolve_tool(name: &str) -> Result<PathBuf> {
     for dir in env::split_paths(&path_var) {
         let candidate = dir.join(name);
         if is_executable_file(&candidate) {
-            return Ok(candidate);
+            return Ok(std::path::absolute(candidate)?);
         }
     }
     Err(ClixError::NoSuchTool {
@@ -29,7 +29,7 @@ pub fn resolve_tool(name: &str) -> Result<PathBuf> {
 
 fn existing_executable(path: &Path, name: &str) -> Result<PathBuf> {
     if is_executable_file(path) {
-        Ok(path.to_path_buf())
+        Ok(std::path::absolute(path)?)
     } else {
         Err(ClixError::NoSuchTool {
             tool: name.to_string(),
@@ -68,6 +68,11 @@ pub fn add(
         ));
     }
     let binary = resolve_tool(tool)?;
+    for name in allow {
+        if *name != store.body_name && !store.peers.iter().any(|p| p.name.0 == *name) {
+            return Err(ClixError::Usage(format!("{name} is not a paired body")));
+        }
+    }
     let allow_from = if allow.is_empty() {
         None
     } else {
@@ -80,6 +85,7 @@ pub fn add(
         once,
         until,
         schedule,
+        reservation: None,
     };
     store.grants.retain(|g| g.tool != grant.tool);
     store.grants.push(grant.clone());
@@ -119,6 +125,10 @@ pub fn check_at(store: &Store, tool: &str, from: &BodyId, now: DateTime<Local>) 
             body: store.body_name.clone(),
         })?;
 
+    if grant.reservation.is_some() {
+        return Err(ClixError::GrantBusy { tool: grant.tool });
+    }
+
     if let Some(ref allowed) = grant.allow_from {
         if !allowed.iter().any(|b| b == from) {
             return Err(ClixError::NotAllowed {
@@ -149,16 +159,4 @@ pub fn check_at(store: &Store, tool: &str, from: &BodyId, now: DateTime<Local>) 
     }
 
     Ok(grant)
-}
-
-/// Remove a `--once` grant after a successful run. Not called from `check`.
-pub fn consume_once(store: &mut Store, tool: &str) {
-    let should_remove = store
-        .grants
-        .iter()
-        .find(|g| g.tool == tool)
-        .is_some_and(|g| g.once);
-    if should_remove {
-        store.grants.retain(|g| g.tool != tool);
-    }
 }

@@ -27,8 +27,14 @@ async fn log_on_both_bodies_after_success_and_deny() {
     assert_eq!(
         server_lines,
         vec![
-            "server true on laptop  exit 0".to_string(),
-            "server bash on laptop  denied: bash is not added on laptop".to_string(),
+            format!(
+                "{:?}  server [\"true\"] on laptop  exit 0",
+                server_log["jobs"][0]["id"].as_str().unwrap()
+            ),
+            format!(
+                "{:?}  server [\"bash\"] on laptop  denied: bash is not added on laptop",
+                server_log["jobs"][1]["id"].as_str().unwrap()
+            ),
         ]
     );
     assert_eq!(laptop_lines, server_lines);

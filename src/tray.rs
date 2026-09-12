@@ -85,8 +85,8 @@ impl ClixTray {
 
     fn allow_latest(&self) {
         self.with_store_mut(|s| {
-            if request::allow(s, &[], true, None, None).is_ok() {
-                let _ = s.save();
+            if let Err(e) = s.update(|s| request::allow(s, &[], true, None, None)) {
+                eprintln!("could not allow request: {e}");
             }
         });
     }

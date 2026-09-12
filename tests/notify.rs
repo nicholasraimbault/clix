@@ -28,6 +28,12 @@ async fn denied_exec_notifies_once_allow_deny() {
         .unwrap();
     assert_eq!(v["status"], "denied");
 
+    for _ in 0..50 {
+        if !calls.lock().unwrap().is_empty() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
     let got = calls.lock().unwrap().clone();
     assert_eq!(got.len(), 1, "{got:?}");
     assert_eq!(got[0].0, "server");

@@ -1,14 +1,24 @@
 use std::time::{Duration, SystemTime};
 
 use chrono::{Local, NaiveDateTime, NaiveTime, TimeZone, Weekday};
-use clix::{
-    add, check, check_at, consume_once, hands, remove, resolve_tool, BodyId, ClixError, Schedule,
-    Store,
-};
+use clix::{add, check, check_at, hands, remove, resolve_tool, BodyId, ClixError, Schedule, Store};
 
 fn empty_store() -> Store {
     let dir = tempfile::tempdir().unwrap();
-    Store::open(dir.path()).unwrap()
+    let mut s = Store::open(dir.path()).unwrap();
+    s.peers = vec![
+        clix::Peer {
+            name: BodyId("server".into()),
+            owner_pk: vec![1; 32],
+            addr: None,
+        },
+        clix::Peer {
+            name: BodyId("phone".into()),
+            owner_pk: vec![2; 32],
+            addr: None,
+        },
+    ];
+    s
 }
 
 fn t(h: u32, m: u32) -> NaiveTime {
@@ -155,25 +165,6 @@ fn remove_then_check_is_not_added() {
 }
 
 #[test]
-fn consume_once_removes_only_after_success_not_on_check() {
-    let mut s = empty_store();
-    add(&mut s, "true", &[], true, None, None).unwrap();
-    assert!(check(&s, "true", &BodyId("server".into())).is_ok());
-    assert!(check(&s, "true", &BodyId("server".into())).is_ok());
-    consume_once(&mut s, "true");
-    let e = check(&s, "true", &BodyId("server".into())).unwrap_err();
-    assert!(e.to_string().contains("not added"));
-}
-
-#[test]
-fn consume_once_leaves_standing_grant() {
-    let mut s = empty_store();
-    add(&mut s, "true", &[], false, None, None).unwrap();
-    consume_once(&mut s, "true");
-    assert!(check(&s, "true", &BodyId("server".into())).is_ok());
-}
-
-#[test]
 fn once_and_schedule_conflict() {
     let mut s = empty_store();
     let e = add(
@@ -305,4 +296,11 @@ fn allow_is_the_same_allow_from_field() {
         &vec![BodyId("server".into())]
     );
     assert!(g.schedule.is_none());
+}
+
+#[test]
+fn unknown_allow_body_is_rejected_without_changing_grants() {
+    let mut s = empty_store();
+    assert!(add(&mut s, "true", &["unpaired".into()], false, None, None).is_err());
+    assert!(s.grants.is_empty());
 }

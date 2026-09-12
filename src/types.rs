@@ -28,6 +28,9 @@ pub struct Grant {
     pub until: Option<SystemTime>,
     #[serde(default)]
     pub schedule: Option<Schedule>,
+    /// A successful run consumes this grant. Interrupted runs retain the reservation.
+    #[serde(default)]
+    pub reservation: Option<String>,
 }
 
 /// Repeating window on this box's local clock.
@@ -78,15 +81,21 @@ pub struct Job {
     pub argv: Vec<String>,
     pub from: BodyId,
     pub status: JobStatus,
+    #[serde(default)]
+    pub stdout: Vec<u8>,
+    #[serde(default)]
+    pub stderr: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum JobStatus {
+    Queued,
     WaitingBody,
     Running,
     Done { exit: i32 },
     Denied { reason: String },
     Failed { reason: String },
+    Uncertain { reason: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -103,6 +112,26 @@ pub struct Request {
     pub tool: String,
     #[serde(default = "true_default")]
     pub once_suggested: bool,
+}
+
+/// Durable delivery of a permission request, without executing a command.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OutboundRequest {
+    pub id: String,
+    pub body: BodyId,
+    pub tool: String,
+    #[serde(default)]
+    pub waiting: bool,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+/// Retained after owner approval/denial so a lost acknowledgement cannot
+/// recreate a prompt for the same delivery.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequestReceipt {
+    pub delivery_id: String,
+    pub request: Request,
 }
 
 fn true_default() -> bool {

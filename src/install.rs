@@ -11,7 +11,27 @@ const DEFAULT_EXE: &str = "/usr/bin/clix";
 /// Write `clix.service` under the systemd --user dir, then `daemon-reload` and `enable --now`.
 pub fn install() -> Result<()> {
     write_unit()?;
-    enable_now()
+    enable_now()?;
+    if dir_overridden() {
+        return Ok(());
+    }
+    let sock = crate::paths::socket_path()?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while std::time::Instant::now() < deadline {
+        if crate::local::client_send_timeout(
+            &sock,
+            serde_json::json!({"op":"status"}),
+            Some(std::time::Duration::from_millis(500)),
+        )
+        .is_ok()
+        {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    Err(ClixError::Io(
+        "Clix did not become ready. Inspect journalctl --user -u clix.service".into(),
+    ))
 }
 
 /// `$CLIX_SYSTEMD_DIR`, else `$XDG_CONFIG_HOME/systemd/user`, else `~/.config/systemd/user`.

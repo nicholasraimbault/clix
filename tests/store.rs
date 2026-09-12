@@ -46,6 +46,7 @@ fn grant_roundtrip() {
     let dir = tempfile::tempdir().unwrap();
     let mut s = Store::open(dir.path()).unwrap();
     s.grants.push(Grant {
+        reservation: None,
         tool: "adb".into(),
         binary: PathBuf::from("/usr/bin/adb"),
         allow_from: None,
@@ -66,6 +67,7 @@ fn grant_schedule_roundtrip() {
     let dir = tempfile::tempdir().unwrap();
     let mut s = Store::open(dir.path()).unwrap();
     s.grants.push(Grant {
+        reservation: None,
         tool: "adb".into(),
         binary: PathBuf::from("/usr/bin/adb"),
         allow_from: Some(vec![BodyId("server".into())]),
@@ -111,6 +113,8 @@ fn job_roundtrip() {
     let dir = tempfile::tempdir().unwrap();
     let mut s = Store::open(dir.path()).unwrap();
     s.jobs.push(Job {
+        stdout: Vec::new(),
+        stderr: Vec::new(),
         id: "job-1".into(),
         body: BodyId("laptop".into()),
         argv: vec!["adb".into(), "devices".into()],
@@ -118,6 +122,8 @@ fn job_roundtrip() {
         status: JobStatus::WaitingBody,
     });
     s.jobs.push(Job {
+        stdout: Vec::new(),
+        stderr: Vec::new(),
         id: "job-2".into(),
         body: BodyId("laptop".into()),
         argv: vec!["true".into()],
@@ -125,6 +131,8 @@ fn job_roundtrip() {
         status: JobStatus::Done { exit: 0 },
     });
     s.jobs.push(Job {
+        stdout: Vec::new(),
+        stderr: Vec::new(),
         id: "job-3".into(),
         body: BodyId("laptop".into()),
         argv: vec!["bash".into()],
@@ -134,6 +142,8 @@ fn job_roundtrip() {
         },
     });
     s.jobs.push(Job {
+        stdout: Vec::new(),
+        stderr: Vec::new(),
         id: "job-4".into(),
         body: BodyId("laptop".into()),
         argv: vec!["adb".into()],
@@ -141,6 +151,8 @@ fn job_roundtrip() {
         status: JobStatus::Running,
     });
     s.jobs.push(Job {
+        stdout: Vec::new(),
+        stderr: Vec::new(),
         id: "job-5".into(),
         body: BodyId("laptop".into()),
         argv: vec!["adb".into()],
@@ -217,6 +229,7 @@ fn store_under_clix_home_writes_state_json() {
     let _home = EnvRestore::set("CLIX_HOME", dir.path());
     let mut s = Store::open(&state_dir().unwrap()).unwrap();
     s.grants.push(Grant {
+        reservation: None,
         tool: "adb".into(),
         binary: PathBuf::from("/usr/bin/adb"),
         allow_from: None,
@@ -303,4 +316,41 @@ fn local_dt(y: i32, m: u32, d: u32, h: u32, min: u32) -> chrono::DateTime<Local>
         chrono::LocalResult::Single(t) | chrono::LocalResult::Ambiguous(t, _) => t,
         chrono::LocalResult::None => panic!("no local time for {naive}"),
     }
+}
+
+#[test]
+fn secrets_are_private_and_failed_persistence_stops_further_mutations() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state");
+    let mut store = Store::open(&path).unwrap();
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    assert_eq!(
+        std::fs::metadata(path.join("state.json"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    let original = store.body_name.clone();
+    std::fs::rename(&path, dir.path().join("saved-state")).unwrap();
+    std::fs::write(&path, "blocked").unwrap();
+    assert!(store
+        .update(|s| {
+            s.body_name = "changed".into();
+            Ok(())
+        })
+        .is_err());
+    assert_eq!(store.body_name, original);
+    std::fs::remove_file(&path).unwrap();
+    assert!(store
+        .update(|s| {
+            s.body_name = "changed".into();
+            Ok(())
+        })
+        .is_err());
 }

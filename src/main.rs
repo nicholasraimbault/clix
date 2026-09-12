@@ -8,6 +8,9 @@ fn main() {
         }
     };
     if let Err(err) = clix::dispatch(cmd) {
+        if let clix::ClixError::ToolExit(code) = err {
+            std::process::exit(code);
+        }
         eprintln!("{err}");
         std::process::exit(1);
     }

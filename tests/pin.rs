@@ -105,7 +105,7 @@ async fn pin_io_error_is_not_success() {
 }
 
 #[tokio::test]
-async fn unknown_peer_on_pair_is_ok() {
+async fn unknown_peer_on_pair_is_denied() {
     let b = TestDaemon::spawn_named("server").await;
     let dir = tempfile::tempdir().unwrap();
     let mut store = Store::open(dir.path()).unwrap();
@@ -121,7 +121,7 @@ async fn unknown_peer_on_pair_is_ok() {
     };
     sync_after_pair(&store, &sk, &peer)
         .await
-        .expect("401 unknown peer is the documented pair-race skip");
+        .expect_err("unknown identities must never count as a successful sync");
 }
 
 #[tokio::test]
@@ -161,11 +161,12 @@ async fn conflict_blocks_mesh_exec() {
         .rpc(json!({"op": "add", "tool": "true"}))
         .await
         .unwrap();
-    let err = server
+    let result = server
         .rpc(json!({"op": "exec", "body": "laptop", "argv": ["true"]}))
         .await
-        .unwrap_err();
-    let msg = err.to_string();
+        .unwrap();
+    assert_eq!(result["status"], "failed");
+    let msg = result["reason"].as_str().unwrap();
     assert!(msg.contains("Not merging"), "{msg}");
 }
 
@@ -226,4 +227,189 @@ async fn invalid_pin_content_is_not_ok() {
         msg.contains("invalid pin content") || msg.contains("pin"),
         "{msg}"
     );
+}
+
+#[test]
+fn preserved_timestamps_do_not_hide_both_sides_edits() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let (_ad, mut sa) = store_named("laptop");
+    let (_bd, mut sb) = store_named("server");
+    write_rel(a.path(), "file", "base");
+    clix::pin_sync(&mut sa, a.path(), &mut sb, b.path()).unwrap();
+    write_rel(a.path(), "file", "local edit");
+    write_rel(b.path(), "file", "remote edit");
+    fs::File::open(a.path().join("file"))
+        .unwrap()
+        .set_modified(std::time::UNIX_EPOCH)
+        .unwrap();
+    assert!(clix::pin_sync(&mut sa, a.path(), &mut sb, b.path())
+        .unwrap_err()
+        .to_string()
+        .contains("Not merging"));
+    assert_eq!(
+        fs::read_to_string(a.path().join("file")).unwrap(),
+        "local edit"
+    );
+    assert_eq!(
+        fs::read_to_string(b.path().join("file")).unwrap(),
+        "remote edit"
+    );
+}
+
+#[test]
+fn deletions_propagate_and_displaced_contents_are_recoverable() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let (_ad, mut sa) = store_named("laptop");
+    let (_bd, mut sb) = store_named("server");
+    write_rel(a.path(), "file", "keep a recoverable version");
+    clix::pin_sync(&mut sa, a.path(), &mut sb, b.path()).unwrap();
+    fs::remove_file(a.path().join("file")).unwrap();
+    clix::pin_sync(&mut sa, a.path(), &mut sb, b.path()).unwrap();
+    assert!(!b.path().join("file").exists());
+    let recovery = fs::read_dir(b.path().join(".clix-recovery"))
+        .unwrap()
+        .map(|e| fs::read(e.unwrap().path()).unwrap())
+        .collect::<Vec<_>>();
+    assert!(recovery.contains(&b"keep a recoverable version".to_vec()));
+    clix::pin_sync(&mut sb, b.path(), &mut sa, a.path()).unwrap();
+    assert!(!a.path().join("file").exists());
+}
+
+#[test]
+fn deletion_against_edit_is_a_conflict() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let (_ad, mut sa) = store_named("laptop");
+    let (_bd, mut sb) = store_named("server");
+    write_rel(a.path(), "file", "base");
+    clix::pin_sync(&mut sa, a.path(), &mut sb, b.path()).unwrap();
+    fs::remove_file(a.path().join("file")).unwrap();
+    write_rel(b.path(), "file", "edited");
+    assert!(clix::pin_sync(&mut sa, a.path(), &mut sb, b.path()).is_err());
+    assert_eq!(fs::read_to_string(b.path().join("file")).unwrap(), "edited");
+}
+
+#[test]
+fn a_third_peer_does_not_replace_the_first_peers_baseline() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let c = tempfile::tempdir().unwrap();
+    let (_ad, mut sa) = store_named("laptop");
+    let (_bd, mut sb) = store_named("server");
+    let (_cd, mut sc) = store_named("phone");
+    write_rel(a.path(), "file", "base");
+    clix::pin_sync(&mut sa, a.path(), &mut sb, b.path()).unwrap();
+    write_rel(a.path(), "file", "local edit");
+    clix::pin_sync(&mut sa, a.path(), &mut sc, c.path()).unwrap();
+    write_rel(b.path(), "file", "server edit");
+    assert!(clix::pin_sync(&mut sa, a.path(), &mut sb, b.path()).is_err());
+}
+
+#[tokio::test]
+async fn network_pin_preserves_executable_mode_and_binary_content() {
+    let (laptop, server) = paired("laptop", "server").await;
+    fs::write(laptop.pin_dir().join("binary"), [0, 255, 128]).unwrap();
+    fs::set_permissions(
+        laptop.pin_dir().join("binary"),
+        fs::Permissions::from_mode(0o751),
+    )
+    .unwrap();
+    laptop.rpc(json!({"op":"add","tool":"true"})).await.unwrap();
+    assert_eq!(
+        server
+            .rpc(json!({"op":"exec","body":"laptop","argv":["true"]}))
+            .await
+            .unwrap()["exit"],
+        0
+    );
+    assert_eq!(
+        fs::read(server.pin_dir().join("binary")).unwrap(),
+        vec![0, 255, 128]
+    );
+    assert_eq!(
+        fs::metadata(server.pin_dir().join("binary"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o751
+    );
+}
+
+#[test]
+fn pending_recovery_receipt_blocks_sync_after_restart() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let (ad, mut sa) = store_named("laptop");
+    let (_bd, mut sb) = store_named("server");
+    write_rel(a.path(), "file", "base");
+    clix::pin_sync(&mut sa, a.path(), &mut sb, b.path()).unwrap();
+    write_rel(
+        a.path(),
+        ".clix-recovery/interrupted.json",
+        r#"{"path":"file","state":"pending"}"#,
+    );
+    sa = Store::open(ad.path()).unwrap();
+    let error = clix::pin_sync(&mut sa, a.path(), &mut sb, b.path())
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("file") && error.contains("interrupted.json"),
+        "{error}"
+    );
+}
+
+#[test]
+fn late_write_through_retained_inode_is_reported_and_preserved() {
+    use std::io::{Seek, SeekFrom, Write};
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let (_ad, mut sa) = store_named("laptop");
+    let (_bd, mut sb) = store_named("server");
+    write_rel(a.path(), "file", "base");
+    clix::pin_sync(&mut sa, a.path(), &mut sb, b.path()).unwrap();
+    let mut owner = fs::OpenOptions::new()
+        .write(true)
+        .open(b.path().join("file"))
+        .unwrap();
+    write_rel(a.path(), "file", "new content");
+    clix::pin_sync(&mut sa, a.path(), &mut sb, b.path()).unwrap();
+    owner.seek(SeekFrom::Start(0)).unwrap();
+    owner.write_all(b"late owner edit").unwrap();
+    owner.sync_all().unwrap();
+    let error = clix::pin_sync(&mut sa, a.path(), &mut sb, b.path())
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("retained version changed"), "{error}");
+    assert!(fs::read_dir(b.path().join(".clix-recovery"))
+        .unwrap()
+        .any(|e| fs::read(e.unwrap().path()).unwrap() == b"late owner edit"));
+}
+
+#[test]
+fn pin_cannot_replace_an_active_granted_binary() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let (_ad, mut sa) = store_named("laptop");
+    let (_bd, mut sb) = store_named("server");
+    write_rel(a.path(), "tool", "original");
+    fs::set_permissions(a.path().join("tool"), fs::Permissions::from_mode(0o755)).unwrap();
+    clix::pin_sync(&mut sa, a.path(), &mut sb, b.path()).unwrap();
+    clix::add(
+        &mut sb,
+        b.path().join("tool").to_str().unwrap(),
+        &[],
+        false,
+        None,
+        None,
+    )
+    .unwrap();
+    write_rel(a.path(), "tool", "remote replacement");
+    let error = clix::pin_sync(&mut sa, a.path(), &mut sb, b.path())
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("granted binary"), "{error}");
+    assert_eq!(fs::read(b.path().join("tool")).unwrap(), b"original");
 }
