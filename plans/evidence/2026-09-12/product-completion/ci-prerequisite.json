@@ -1,0 +1,15 @@
+{
+  "revision": "853c2c1269fb4dbdb44babf09515842739285382",
+  "run": "https://github.com/nicholasraimbault/clix/actions/runs/34682809128",
+  "result": "failure",
+  "observed": "Two ENOSPC tests failed before mounting their private filesystem: unshare could not write /proc/self/uid_map (Operation not permitted).",
+  "test_summary": {
+    "passed": 24,
+    "failed": 2,
+    "ignored": 0,
+    "scope": "library target; remaining test targets were not run"
+  },
+  "raw_failed_log_sha256": "1674a2d14d841d0116502720d17dd82d973e37e4fb5db54cc2b5654c67bbf9a5",
+  "change": "Enable unprivileged user namespaces on the disposable Ubuntu CI runner and require an unshare prerequisite probe. No tests skipped and no production configuration changed.",
+  "followup_result": "Separate GitHub run must establish success."
+}

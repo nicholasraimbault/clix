@@ -183,3 +183,12 @@ The [post-upgrade remote smoke](two-machine-smoke.json) ran the existing laptop
 matching saved jobs and verified runner provenance. Both machines' authority
 remained unchanged. No phone was attached; that is not an execution failure.
 Physical suspend, native desktop interaction and sustained use remain unproved.
+
+## CI runner prerequisite
+
+The first pushed revision failed its isolated ENOSPC tests because the hosted
+runner denied the user-namespace mapping. [The failure record](ci-prerequisite.json)
+is retained. The workflow enables the required namespaces on that disposable
+runner and probes them before running the unchanged suite as its ordinary user.
+This changes neither installed machine configuration nor the tested product
+binaries. Native results above remain separate from GitHub's run result.

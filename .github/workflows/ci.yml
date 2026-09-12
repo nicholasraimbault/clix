@@ -47,6 +47,13 @@ jobs:
 
       # These are Linux unit, process, filesystem and loopback mesh tests.
       # Real devices, lid sleep and desktop interactions need separate evidence.
+      - name: Enable isolated filesystem tests
+        # Only this disposable runner: tests remain unprivileged and fill a
+        # private 8 MiB tmpfs, never the runner's ordinary filesystem.
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          unshare --user --map-root-user --mount --pid --fork true
+
       - name: Run tests
         run: cargo test --locked
 
