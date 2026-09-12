@@ -36,6 +36,7 @@ impl TestDaemon {
 
     pub async fn spawn_named(name: &str) -> Self {
         std::env::set_var("CLIX_NOTIFY", "0");
+        std::env::set_var("CLIX_TRAY", "0");
         let home = tempfile::tempdir().unwrap();
         let sock = home.path().join("clix.sock");
         let mut store = Store::open(home.path()).unwrap();

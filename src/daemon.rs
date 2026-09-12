@@ -78,6 +78,7 @@ pub async fn serve_local(store: Arc<Mutex<Store>>, sock: PathBuf) -> Result<()> 
 
 pub async fn serve(store: Arc<Mutex<Store>>, sock: PathBuf, mesh: MeshListener) -> Result<()> {
     crate::notify::bind_store(store.clone());
+    crate::tray::spawn(store.clone());
     let mesh_handle = mesh.handle();
     prepare_socket_path(&sock)?;
     let listener = UnixListener::bind(&sock)?;

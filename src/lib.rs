@@ -11,6 +11,7 @@ mod pair;
 mod paths;
 mod request;
 mod store;
+mod tray;
 mod types;
 
 pub use cli::{parse_argv, Cmd};
@@ -24,4 +25,5 @@ pub use notify::{notify_request, set_notify_hook, NotifyHook};
 pub use pair::{pair_join, pair_listen, phrase};
 pub use paths::{socket_path, state_dir, state_file};
 pub use store::Store;
+pub use tray::tray_tooltip;
 pub use types::{BodyId, Grant, Job, JobStatus, OwnerId, Peer, Request, Schedule};
