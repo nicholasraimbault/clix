@@ -242,7 +242,7 @@ fn reserved_commands() {
         parse_argv(&["clix".into(), "pending".into()]).unwrap(),
         Cmd::Pending
     ));
-    match parse_argv(&["clix".into(), "allow".into()]).unwrap() {
+    match parse_argv(&["clix".into(), "allow".into(), "req-1".into()]).unwrap() {
         Cmd::Allow { once, allow, .. } => {
             assert!(once, "default allow is --once");
             assert!(allow.is_empty());
@@ -250,8 +250,8 @@ fn reserved_commands() {
         other => panic!("expected allow, got {other:?}"),
     }
     assert!(matches!(
-        parse_argv(&["clix".into(), "deny".into()]).unwrap(),
-        Cmd::Deny
+        parse_argv(&["clix".into(), "deny".into(), "req-1".into()]).unwrap(),
+        Cmd::Deny { request_id } if request_id == "req-1"
     ));
     assert!(matches!(
         parse_argv(&["clix".into(), "daemon".into()]).unwrap(),
@@ -394,7 +394,15 @@ fn request_without_tool_is_usage() {
 
 #[test]
 fn allow_for_is_not_once() {
-    match parse_argv(&["clix".into(), "allow".into(), "--for".into(), "2h".into()]).unwrap() {
+    match parse_argv(&[
+        "clix".into(),
+        "allow".into(),
+        "req-1".into(),
+        "--for".into(),
+        "2h".into(),
+    ])
+    .unwrap()
+    {
         Cmd::Allow { once, for_dur, .. } => {
             assert!(!once);
             assert_eq!(for_dur, Some(Duration::from_secs(2 * 3600)));
@@ -432,5 +440,12 @@ fn bad_date_is_usage() {
     match err {
         ClixError::Usage(s) => assert!(s.contains("date")),
         other => panic!("expected usage, got {other}"),
+    }
+}
+
+#[test]
+fn owner_decisions_need_an_explicit_request_id() {
+    for op in ["allow", "deny"] {
+        assert!(parse_argv(&["clix".into(), op.into()]).is_err());
     }
 }

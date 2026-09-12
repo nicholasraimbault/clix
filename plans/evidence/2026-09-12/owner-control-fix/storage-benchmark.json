@@ -1,0 +1,256 @@
+{
+  "created_at": "2026-09-12T06:29:40.680745+00:00",
+  "revision": "8837ee655caace2dc8a16272a97a3319b98c1d35",
+  "source_snapshot": "source/",
+  "baseline_source_hash_manifest": "source-sha256.json",
+  "variant": "one-line compact JSON serializer change only",
+  "production_source_patch": "variant-compact/source.patch",
+  "hardware_and_toolchain": {
+    "logical_cpus": "16",
+    "architecture": "x86_64",
+    "filesystem_type": "btrfs",
+    "filesystem_options_summary": [
+      "compress=zstd:1",
+      "ssd",
+      "noatime"
+    ],
+    "rustc_verbose": "rustc 1.96.0 (ac68faa20 2026-05-25)\nbinary: rustc\ncommit-hash: ac68faa20c58cbccd01ee7208bf3b6e93a7d7f96\ncommit-date: 2026-05-25\nhost: x86_64-unknown-linux-gnu\nrelease: 1.96.0\nLLVM version: 22.1.2",
+    "cargo_version": "cargo 1.96.0 (30a34c682 2026-05-25)",
+    "cpu_governor": "powersave",
+    "recorded_at": "2026-09-12T06:23:50.802466+00:00",
+    "excluded_private_details": [
+      "hostname",
+      "username",
+      "mount source/device identifier",
+      "hardware serials",
+      "IP addresses"
+    ],
+    "redaction_note": "Exact device model, memory capacity and kernel release omitted from this public summary; the original environment report is retained privately."
+  },
+  "actual_state_filesystem_checks": [
+    {
+      "variant": "baseline",
+      "state_parent_relative_to_variant": "disposable-state/",
+      "filesystem_type": "btrfs",
+      "selected_mount_options": [
+        "noatime",
+        "compress=zstd:1",
+        "ssd"
+      ],
+      "command": "findmnt -T <actual-state-parent>/<temporary-probe> -n -o FSTYPE,OPTIONS",
+      "timing": "post-run probe under the exact explicit parent used by every benchmark case; no mount changes made",
+      "tmpfs": false
+    },
+    {
+      "variant": "compact",
+      "state_parent_relative_to_variant": "disposable-state/",
+      "filesystem_type": "btrfs",
+      "selected_mount_options": [
+        "noatime",
+        "compress=zstd:1",
+        "ssd"
+      ],
+      "command": "findmnt -T <actual-state-parent>/<temporary-probe> -n -o FSTYPE,OPTIONS",
+      "timing": "post-run probe under the exact explicit parent used by every benchmark case; no mount changes made",
+      "tmpfs": false
+    }
+  ],
+  "primary_baseline": "measurements.json (second baseline run)",
+  "first_baseline_retained": "measurements-run1.json",
+  "compact_measurements": "variant-compact/measurements.json",
+  "protocol": {
+    "warmups_per_case": 5,
+    "measured_updates_per_case": 51,
+    "operation": "Store::update toggling one synthetic request's once_suggested flag; real Store clone, pretty JSON serialization, tempfile write, file fsync, rename and directory fsync",
+    "sample_percentile": "nearest rank ceil(0.95*N)",
+    "state_bound_bytes": 31457280,
+    "reopen_checks_passed": true
+  },
+  "comparison": [
+    {
+      "case": "empty",
+      "history_jobs": 0,
+      "total_saved_output_bytes": 0,
+      "baseline_state_bytes": 620,
+      "compact_state_bytes": 348,
+      "baseline_update_median_ms": 5.122065,
+      "baseline_update_p95_ms": 5.514739,
+      "compact_update_median_ms": 5.113714,
+      "compact_update_p95_ms": 5.580159,
+      "median_reduction_percent": 0.16303971152260566,
+      "serialized_size_reduction_percent": 43.87096774193549,
+      "baseline_clone_median_ms": 0.0001,
+      "baseline_serialization_median_ms": 0.000707,
+      "compact_serialization_median_ms": 0.000388
+    },
+    {
+      "case": "100_metadata",
+      "history_jobs": 100,
+      "total_saved_output_bytes": 0,
+      "baseline_state_bytes": 32422,
+      "compact_state_bytes": 18347,
+      "baseline_update_median_ms": 5.497389,
+      "baseline_update_p95_ms": 5.891713,
+      "compact_update_median_ms": 5.551058,
+      "compact_update_p95_ms": 5.821396,
+      "median_reduction_percent": -0.9762634588893038,
+      "serialized_size_reduction_percent": 43.411880821664305,
+      "baseline_clone_median_ms": 0.008273,
+      "baseline_serialization_median_ms": 0.026799,
+      "compact_serialization_median_ms": 0.00976
+    },
+    {
+      "case": "1000_metadata",
+      "history_jobs": 1000,
+      "total_saved_output_bytes": 0,
+      "baseline_state_bytes": 318622,
+      "compact_state_bytes": 180347,
+      "baseline_update_median_ms": 6.382419,
+      "baseline_update_p95_ms": 6.955985,
+      "compact_update_median_ms": 5.907655,
+      "compact_update_p95_ms": 6.812686,
+      "median_reduction_percent": 7.438621626063712,
+      "serialized_size_reduction_percent": 43.39781935961735,
+      "baseline_clone_median_ms": 0.074727,
+      "baseline_serialization_median_ms": 0.244435,
+      "compact_serialization_median_ms": 0.0926
+    },
+    {
+      "case": "100_short_output",
+      "history_jobs": 100,
+      "total_saved_output_bytes": 115200,
+      "baseline_state_bytes": 1475622,
+      "compact_state_bytes": 423347,
+      "baseline_update_median_ms": 7.554748,
+      "baseline_update_p95_ms": 8.410469,
+      "compact_update_median_ms": 6.303884,
+      "compact_update_p95_ms": 6.868184,
+      "median_reduction_percent": 16.55732262677723,
+      "serialized_size_reduction_percent": 71.31060664587542,
+      "baseline_clone_median_ms": 0.011061,
+      "baseline_serialization_median_ms": 1.061848,
+      "compact_serialization_median_ms": 0.216408
+    },
+    {
+      "case": "1000_short_output",
+      "history_jobs": 1000,
+      "total_saved_output_bytes": 1152000,
+      "baseline_state_bytes": 14750622,
+      "compact_state_bytes": 4230347,
+      "baseline_update_median_ms": 21.507815,
+      "baseline_update_p95_ms": 25.006091,
+      "compact_update_median_ms": 11.325678,
+      "compact_update_p95_ms": 14.178475,
+      "median_reduction_percent": 47.341568634470775,
+      "serialized_size_reduction_percent": 71.32089073938712,
+      "baseline_clone_median_ms": 0.150484,
+      "baseline_serialization_median_ms": 10.846823,
+      "compact_serialization_median_ms": 2.334849
+    },
+    {
+      "case": "100_test_output",
+      "history_jobs": 100,
+      "total_saved_output_bytes": 1843200,
+      "baseline_state_bytes": 23106222,
+      "compact_state_bytes": 6501947,
+      "baseline_update_median_ms": 30.3698,
+      "baseline_update_p95_ms": 33.127819,
+      "compact_update_median_ms": 13.293575,
+      "compact_update_p95_ms": 14.27079,
+      "median_reduction_percent": 56.22765049489954,
+      "serialized_size_reduction_percent": 71.86062264960495,
+      "baseline_clone_median_ms": 0.115374,
+      "baseline_serialization_median_ms": 18.51023,
+      "compact_serialization_median_ms": 3.427321
+    }
+  ],
+  "source_concurrency_findings": [
+    {
+      "source": "src/store.rs:155",
+      "finding": "Store.update clones the entire Store; save serializes all fields, writes a new file, fsyncs it, renames it and fsyncs the directory (save:124-134). Production callers such as exec.submit/finish perform this while holding the shared std::sync::Mutex. The benchmark measures update itself without lock contention."
+    },
+    {
+      "source": "src/job.rs:137",
+      "finding": "Each dispatcher pass scans the full jobs vector and clones matching nonterminal outbound jobs; it also clones outbound_requests. Default poll interval is 2 seconds (job.rs:89-96). Normal active-ID tracking gives one attempt per ID at a time, but no fixed total attempt limit."
+    },
+    {
+      "source": "src/job.rs:183",
+      "finding": "A task join error clears the whole active-ID set while other tasks may still exist, so one-per-ID attempt tracking is not a universal bound across task failures."
+    },
+    {
+      "source": "src/mesh.rs:108",
+      "finding": "Mesh accept spawns a task per connection without a concurrency semaphore. Requests have a 64 MiB frame bound and 10-second network-stage deadlines; these are per-message/time bounds, not a total connection or memory budget."
+    },
+    {
+      "source": "src/daemon.rs:126",
+      "finding": "Owner listener spawns a task per accepted Unix connection with no fixed connection cap in this baseline; owner line parsing at local.rs:87 has no line-size bound."
+    },
+    {
+      "source": "src/exec.rs:91",
+      "finding": "Each newly accepted granted invocation spawns a task/process; there is no global process limit. Capture limits are 4 MiB per output stream (exec.rs:182). The once-grant reservation constrains that grant, not the total number of other granted commands."
+    }
+  ],
+  "limitations": [
+    "Single-process, uncontended Store::update calls on one local Linux machine; this is not owner CLI/RPC latency, concurrent workload throughput, two-machine operation or proof under disk exhaustion.",
+    "Five warmups and 51 measured updates per case, fixed ascending case order; warm page/allocator/filesystem caches. p95 is nearest-rank over 51 samples, not a long-run service-level estimate.",
+    "The first baseline run overlapped one rustc process at its start; its raw samples remain preserved. The baseline repeat and compact run had zero rustc processes at sampled start/end only. Other background activity, CPU scheduling and power state were not controlled.",
+    "CPU governor was powersave. No CPU affinity, dropped caches, storage-device isolation or physical power-loss test was used.",
+    "Outputs are deterministic synthetic UTF-8 test/diagnostic lines represented by Vec<u8>; repetitive text is compressible. Btrfs compression is enabled. Logical serialized bytes are measured, not physical device writes.",
+    "Files were written and fsynced through the real production Store.save path, then reopened for equality verification. Successful fsync is not an independently observed power-loss durability guarantee.",
+    "Largest baseline state was 23,106,222 bytes (below the 30 MiB hard bound); largest saved binary output corpus was 1,843,200 bytes. Larger histories/outputs and operational longevity remain unmeasured.",
+    "Clone-only and serialization-only diagnostics are separately timed with resulting-object drop excluded; they do not sum to total update latency.",
+    "Only production variant change is serde_json::to_vec_pretty(self) to serde_json::to_vec(self). Full Store clone/rewrite, retained history growth and shared-lock scope remain unchanged."
+  ],
+  "commands": [
+    {
+      "cwd": "harness/",
+      "command": "cargo build --offline --locked --release -j 2"
+    },
+    {
+      "cwd": ".",
+      "command": "./harness/target/release/clix-store-baseline .",
+      "note": "Run twice before the shared external target was rebuilt for compact variant; baseline binary preserved under binaries/."
+    },
+    {
+      "cwd": "variant-compact/harness/",
+      "command": "cargo build --offline --locked --release -j 2 --target-dir ../../harness/target"
+    },
+    {
+      "cwd": "variant-compact/",
+      "command": "../binaries/clix-store-baseline-compact ."
+    }
+  ],
+  "artifact_sha256": {
+    "source-sha256.json": "4851b3506f8583f2a5df89a5a44a8068a2fb080e519b1eb7405e0e6490b2860c",
+    "harness/Cargo.toml": "fbbfdab96e7a7f58631baaedd070ae6b170990f460cd97dc8d601a53307f7285",
+    "harness/Cargo.lock": "a0c33438fe0c9b7d68e5f910ee368019437bce2864b229844328f28036fc9df3",
+    "harness/src/main.rs": "ca17e52d8024ee17c22fa9b7141d8bdb10bcd0344dca5aaf91be58825dc2c8aa",
+    "measurements-run1.json": "f7602e395d0100251bf037eb806cb6e74ff806f99dddab236830b9061a9b040a",
+    "run-context-run1.json": "a56b4b8aa7c984aac9b2b0cf4b046cef9685230ef46a892758d7a75d79246b3b",
+    "measurements.json": "c7eadf4fe61a3387a34a7a75d67df627f8e9d0f005cd4ad252144e868935eb04",
+    "run-context.json": "6d3ab3b0af8fdf21641e5d94a0ea9bb31c119b2831a5cf958edd4a8758629421",
+    "environment.json": "283c3608a5bc2049ae7f0e45a06900c3d9a601944573535de14ff49f28bd5a2e",
+    "binaries/clix-store-baseline-pretty": "b0f1229ad14988c11319d9cf6ece171ee9a3495e993e2eddc9ab982ef7191bd1",
+    "binaries/clix-store-baseline-compact": "52a1271e3ad3391235d23af3ba6683ecce627074a27a184f7344407838d5eaca",
+    "variant-compact/source.patch": "21c6d92366a8cfaf104603009481f1cfd224639a9c40f6483684b80864335cd2",
+    "variant-compact/source-sha256.json": "35e8014e2b12d50e9efac32714e00e9b7740e105a932370f29f5b13e6df0062e",
+    "variant-compact/harness/Cargo.toml": "fbbfdab96e7a7f58631baaedd070ae6b170990f460cd97dc8d601a53307f7285",
+    "variant-compact/harness/Cargo.lock": "a0c33438fe0c9b7d68e5f910ee368019437bce2864b229844328f28036fc9df3",
+    "variant-compact/harness/src/main.rs": "1826619f256fe6be422ab2d2ed2fba7fc6b9abdb34216e69caf4746c1e4d5299",
+    "variant-compact/measurements.json": "7de57dd5c39920dccf2b117452b82dc81e1f138dc6a6a65da073c062c188be32",
+    "variant-compact/run-context.json": "90a0430b2ebd1eaeffe64d7b64481d01d999b37309977f37a496a7e202c0e5ec"
+  },
+  "private_identifiers_excluded": [
+    "hostname",
+    "username",
+    "absolute home paths",
+    "IP addresses",
+    "hardware serials",
+    "storage-device identifiers"
+  ],
+  "repository_source_changes": false,
+  "daemons_or_real_grants_used": false,
+  "network_or_remote_hardware_used": false,
+  "archived_summary_sha256": "62d95573a827d749e92bc54a88ec28898d08f9f36455e35ffb3790ee2999d792",
+  "artifact_paths_scope": "Paths in this benchmark report name the privately retained external benchmark workspace, not files included in this repository. Source snapshots, harness, raw samples and binaries are retained there."
+}

@@ -89,20 +89,42 @@ pub fn add(
     };
     store.grants.retain(|g| g.tool != grant.tool);
     store.grants.push(grant.clone());
+    invalidate_requests(store, &grant.tool);
     Ok(grant)
 }
 
-pub fn remove(store: &mut Store, tool: &str) -> Result<()> {
-    let before = store.grants.len();
-    store.grants.retain(|g| g.tool != tool);
-    if store.grants.len() == before {
-        Err(ClixError::NotAdded {
-            tool: tool.to_string(),
-            body: store.body_name.clone(),
-        })
+/// Resolve only the spelling of a removal path, never its filesystem target.
+/// The CLI calls this before RPC so relative paths use the owner's working directory.
+pub(crate) fn removal_target(tool: &str) -> Result<PathBuf> {
+    if tool.contains('/') {
+        Ok(std::path::absolute(tool)?)
     } else {
-        Ok(())
+        Ok(PathBuf::from(tool))
     }
+}
+
+fn invalidate_requests(store: &mut Store, key: &str) {
+    // A pending approval cannot supersede a later owner decision for this slot.
+    // Delivery receipts remain, so delayed retries cannot revive its old ID.
+    store.requests.retain(|r| tool_key(&r.tool) != key);
+}
+
+pub fn remove(store: &mut Store, tool: &str) -> Result<()> {
+    let target = removal_target(tool)?;
+    let index = store.grants.iter().position(|g| {
+        if target.is_absolute() {
+            g.binary == target
+        } else {
+            g.tool == tool
+        }
+    });
+    let index = index.ok_or_else(|| ClixError::NotAdded {
+        tool: tool.to_string(),
+        body: store.body_name.clone(),
+    })?;
+    let removed = store.grants.remove(index);
+    invalidate_requests(store, &removed.tool);
+    Ok(())
 }
 
 pub fn hands(store: &Store) -> &[Grant] {

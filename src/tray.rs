@@ -83,10 +83,10 @@ impl ClixTray {
         Some(f(&mut g))
     }
 
-    fn allow_latest(&self) {
+    fn decide(&self, id: &str, decision: request::Decision) {
         self.with_store_mut(|s| {
-            if let Err(e) = s.update(|s| request::allow(s, &[], true, None, None)) {
-                eprintln!("could not allow request: {e}");
+            if let Err(e) = s.update(|s| request::decide(s, id, decision)) {
+                eprintln!("could not apply request decision: {e}");
             }
         });
     }
@@ -160,33 +160,45 @@ impl ksni::Tray for ClixTray {
 }
 
 fn pending_items(store: &Store) -> Vec<MenuItem<ClixTray>> {
-    let mut items: Vec<MenuItem<ClixTray>> = store
+    if store.requests.is_empty() {
+        return pending_items_empty();
+    }
+    store
         .requests
         .iter()
         .map(|r| {
-            StandardItem {
+            let submenu = [
+                ("once", "Allow once"),
+                ("allow", "Allow for all paired machines"),
+                ("deny", "Deny"),
+            ]
+            .into_iter()
+            .map(|(action, label)| {
+                let id = r.id.clone();
+                let decision = request::Decision::from_action(action).expect("known native action");
+                StandardItem {
+                    label: label.into(),
+                    activate: Box::new(move |tray: &mut ClixTray| {
+                        tray.decide(&id, decision.clone())
+                    }),
+                    ..Default::default()
+                }
+                .into()
+            })
+            .collect();
+            SubMenu {
                 label: menu_label(&format!("{} wants {}", r.from, r.tool)),
-                enabled: false,
+                submenu,
                 ..Default::default()
             }
             .into()
         })
-        .collect();
-    items.push(
-        StandardItem {
-            label: "Allow".into(),
-            enabled: !store.requests.is_empty(),
-            activate: Box::new(|tray: &mut ClixTray| tray.allow_latest()),
-            ..Default::default()
-        }
-        .into(),
-    );
-    items
+        .collect()
 }
 
 fn pending_items_empty() -> Vec<MenuItem<ClixTray>> {
     vec![StandardItem {
-        label: "Allow".into(),
+        label: "No pending requests".into(),
         enabled: false,
         ..Default::default()
     }
@@ -209,7 +221,11 @@ fn hands_items(store: &Store) -> Vec<MenuItem<ClixTray>> {
 }
 
 fn item_enabled(item: &MenuItem<ClixTray>) -> bool {
-    matches!(item, MenuItem::Standard(StandardItem { enabled: true, .. }))
+    matches!(
+        item,
+        MenuItem::Standard(StandardItem { enabled: true, .. })
+            | MenuItem::SubMenu(SubMenu { enabled: true, .. })
+    )
 }
 
 fn menu_label(s: &str) -> String {
@@ -233,5 +249,86 @@ fn tray_icon() -> ksni::Icon {
         width: SIZE,
         height: SIZE,
         data,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{BodyId, Peer};
+    use ksni::Tray;
+
+    fn once_item(tray: &ClixTray) -> StandardItem<ClixTray> {
+        let MenuItem::SubMenu(mut pending) = tray.menu().remove(0) else {
+            panic!("pending menu")
+        };
+        assert!(pending.enabled);
+        let MenuItem::SubMenu(mut request) = pending.submenu.remove(0) else {
+            panic!("request menu")
+        };
+        let MenuItem::Standard(once) = request.submenu.remove(0) else {
+            panic!("once action")
+        };
+        assert_eq!(once.label, "Allow once");
+        once
+    }
+
+    #[test]
+    fn saved_tray_action_keeps_its_target_and_cannot_override_new_owner_decisions() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = Store::open(dir.path()).unwrap();
+        s.body_name = "laptop".into();
+        s.peers.push(Peer {
+            name: BodyId("server".into()),
+            owner_pk: vec![1; 32],
+            addr: None,
+        });
+        s.update(|s| request::upsert(s, BodyId("server".into()), "true"))
+            .unwrap();
+        let store = Arc::new(Mutex::new(s));
+        let mut tray = ClixTray {
+            store: Arc::downgrade(&store),
+        };
+        let selected = once_item(&tray);
+        store
+            .lock()
+            .unwrap()
+            .update(|s| request::upsert(s, BodyId("server".into()), "false"))
+            .unwrap();
+        (selected.activate)(&mut tray);
+        {
+            let s = store.lock().unwrap();
+            assert_eq!(s.grants.len(), 1);
+            assert_eq!(s.grants[0].tool, "true");
+            assert!(s.grants[0].once);
+            assert_eq!(s.grants[0].allow_from, Some(vec![BodyId("server".into())]));
+            assert_eq!(s.requests.len(), 1);
+            assert_eq!(s.requests[0].tool, "false");
+        }
+        let stale = once_item(&tray);
+        store
+            .lock()
+            .unwrap()
+            .update(|s| crate::grant::add(s, "false", &["laptop".into()], false, None, None))
+            .unwrap();
+        let newer = store.lock().unwrap().grants.clone();
+        (stale.activate)(&mut tray);
+        assert_eq!(store.lock().unwrap().grants, newer);
+        store
+            .lock()
+            .unwrap()
+            .update(|s| request::upsert(s, BodyId("server".into()), "false"))
+            .unwrap();
+        let revoked = once_item(&tray);
+        store
+            .lock()
+            .unwrap()
+            .update(|s| crate::grant::remove(s, "false"))
+            .unwrap();
+        (revoked.activate)(&mut tray);
+        let reopened = Store::open(dir.path()).unwrap();
+        assert_eq!(reopened.grants.len(), 1);
+        assert_eq!(reopened.grants[0].tool, "true");
+        assert!(reopened.requests.is_empty());
     }
 }

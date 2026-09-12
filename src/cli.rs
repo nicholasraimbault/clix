@@ -35,6 +35,7 @@ pub enum Cmd {
     Log,
     Pending,
     Allow {
+        request_id: String,
         allow: Vec<String>,
         once: bool,
         for_dur: Option<Duration>,
@@ -45,7 +46,9 @@ pub enum Cmd {
         to: Option<String>,
         weekdays: bool,
     },
-    Deny,
+    Deny {
+        request_id: String,
+    },
     Request {
         body: String,
         tool: String,
@@ -84,10 +87,15 @@ enum Commands {
     Log,
     Pending,
     Allow {
+        #[arg(value_name = "REQUEST_ID")]
+        request_id: String,
         #[command(flatten)]
         grant: GrantCli,
     },
-    Deny,
+    Deny {
+        #[arg(value_name = "REQUEST_ID")]
+        request_id: String,
+    },
     Request {
         body: Option<String>,
         tool: Option<String>,
@@ -151,9 +159,10 @@ pub fn parse_argv(argv: &[String]) -> Result<Cmd> {
         }
         Some(Commands::Log) => Ok(Cmd::Log),
         Some(Commands::Pending) => Ok(Cmd::Pending),
-        Some(Commands::Allow { grant }) => {
+        Some(Commands::Allow { request_id, grant }) => {
             let g = parse_grant_cli(grant, true)?;
             Ok(Cmd::Allow {
+                request_id,
                 allow: g.allow,
                 once: g.once,
                 for_dur: g.for_dur,
@@ -165,7 +174,7 @@ pub fn parse_argv(argv: &[String]) -> Result<Cmd> {
                 weekdays: g.weekdays,
             })
         }
-        Some(Commands::Deny) => Ok(Cmd::Deny),
+        Some(Commands::Deny { request_id }) => Ok(Cmd::Deny { request_id }),
         Some(Commands::Request { body, tool }) => {
             let body =
                 body.ok_or_else(|| ClixError::Usage("usage: clix request <body> <tool>".into()))?;

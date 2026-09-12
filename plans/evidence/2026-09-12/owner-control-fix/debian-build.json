@@ -1,0 +1,58 @@
+{
+  "started_at": "2026-09-12T06:37:51.624457+00:00",
+  "finished_at": "2026-09-12T06:39:43.311053+00:00",
+  "base_revision": "8837ee655caace2dc8a16272a97a3319b98c1d35",
+  "source_manifest_sha256": "75bd4359f4de396824d30320de589a208d4a33109343922ecde6fb29f633fde4",
+  "source_files_verified": 41,
+  "supplementary_build_inputs": {
+    "systemd/clix.service": "37d558226803748e122d3ab215159b96b3d8bcc1699fd3f2d936f4203eb97fb7",
+    "README.md": "e6981f38f4b0c76d4521843d8421ce85dd99eed5f91e2cd02557511f3d59723e",
+    "LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  },
+  "all_build_inputs_verified": 44,
+  "source_issues_after_build": [],
+  "archive_sha256": "31cbb58dd3f21c80eb20bac9ef4a5470dcdf4bfcc27923620a9abff1271541a7",
+  "platform": {
+    "os_release": "PRETTY_NAME=\"Debian GNU/Linux 13 (trixie)\"\nNAME=\"Debian GNU/Linux\"\nVERSION_ID=\"13\"\nVERSION=\"13 (trixie)\"\nVERSION_CODENAME=trixie\nDEBIAN_VERSION_FULL=13.6\nID=debian\nHOME_URL=\"https://www.debian.org/\"\nSUPPORT_URL=\"https://www.debian.org/support\"\nBUG_REPORT_URL=\"https://bugs.debian.org/\"\n",
+    "rustc_verbose": "rustc 1.96.1 (31fca3adb 2026-06-26)\nbinary: rustc\ncommit-hash: 31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd\ncommit-date: 2026-06-26\nhost: x86_64-unknown-linux-gnu\nrelease: 1.96.1\nLLVM version: 22.1.2",
+    "cargo_version": "cargo 1.96.1 (356927216 2026-06-26)"
+  },
+  "commands": [
+    "cargo test --locked",
+    "cargo build --release --locked"
+  ],
+  "stages": [
+    {
+      "name": "test",
+      "exit_code": 0,
+      "elapsed_seconds": 50.683913049986586,
+      "test_totals": {
+        "passed": 132,
+        "failed": 0,
+        "ignored": 0,
+        "result_groups": 17
+      }
+    },
+    {
+      "name": "release",
+      "exit_code": 0,
+      "elapsed_seconds": 60.862215292057954
+    }
+  ],
+  "release_binary": "<BUILD>/target/release/clix",
+  "release_binary_sha256": "e8e5d3441c0a3c7e39df60a7ce01067e215c9a89bd4668c3bad1bf81cde605fd",
+  "release_binary_file": "<BUILD>/target/release/clix: ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, for GNU/Linux 3.2.0, BuildID[sha1]=3756189a491c531ec754a12d2f1bfe17634437bc, not stripped",
+  "logs": {
+    "debian-tests.log": {
+      "raw_sha256": "01597269324fd5f65f9e6cfe7109a80c62da9bbdd8fe115052c864b32eeeded4",
+      "redacted_sha256": "7b9a21723a8f41692895e0f400f209f53fe5dc6b0839ebbc899b9732e0be5dac"
+    },
+    "debian-release-build.log": {
+      "raw_sha256": "b78888e83b866c5a9c5ae7cd5a000ebd7ba79dae98b76fee12e3a53e41f5c25e",
+      "redacted_sha256": "da61f8ca4ddfdaba5101ca584bc16efdb38bc4f81132557bad87631a325d6332"
+    }
+  },
+  "raw_build_report_sha256": "eb3f6afaa5c289132ee3ab4e155d9382cfb17d017f283c07ce1275a8563a1472",
+  "passed": true,
+  "provenance": "Native build and tests on the existing Debian server, in a fresh private build directory. Identifiers for machines, home paths and build directories are redacted in public logs; raw logs and report are retained privately and identified by SHA256. Source and binary hashes and test outcomes are unchanged. No installed binary or service, real Clix state, or live hardware was changed by this build check."
+}

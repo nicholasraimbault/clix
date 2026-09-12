@@ -1,0 +1,41 @@
+{
+  "started_at": "2026-09-12T06:36:51.340177+00:00",
+  "old_binary_sha256": "25c7fedad89cbcb033618ac424d8cc4c455179bd62b1ddce0f359f1306a8f560",
+  "new_binary_sha256": "9200bf4d895ea5539aafcd9bc1b6f9047f4403da05453357695321ed4ad9a7a6",
+  "checks": {
+    "active_running": true,
+    "enabled_preserved": true,
+    "installed_hash_matches": true,
+    "running_hash_matches": true,
+    "unit_unchanged": true,
+    "entire_state_semantically_unchanged": true,
+    "body_name_unchanged": true,
+    "owner_sk_unchanged": true,
+    "peers_unchanged": true,
+    "grants_unchanged": true,
+    "pin_index_unchanged": true,
+    "allow_absent_id_rejected": true,
+    "deny_absent_id_rejected": true,
+    "state_unchanged_after_rejected_decisions": true
+  },
+  "commands": [
+    "systemctl --user stop clix.service",
+    "atomic binary replacement at existing ExecStart path",
+    "systemctl --user start clix.service"
+  ],
+  "allow_probe": {
+    "exit_code": 1,
+    "stdout": "",
+    "stderr": "request is no longer pending; run clix pending\n"
+  },
+  "deny_probe": {
+    "exit_code": 1,
+    "stdout": "",
+    "stderr": "request is no longer pending; run clix pending\n"
+  },
+  "grant_count": 1,
+  "active_jobs_before_upgrade": 0,
+  "pending_requests_before_upgrade": 0,
+  "passed": true,
+  "finished_at": "2026-09-12T06:36:51.494615+00:00"
+}

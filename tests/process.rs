@@ -190,11 +190,18 @@ impl Daemon {
     }
 
     fn cli(&self, args: &[&str]) -> Output {
+        self.cli_in(args, None)
+    }
+
+    fn cli_in(&self, args: &[&str], cwd: Option<&Path>) -> Output {
         let capture = tempfile::tempdir().unwrap();
         let stdout = capture.path().join("stdout");
         let stderr = capture.path().join("stderr");
-        let mut child = self
-            .command()
+        let mut command = self.command();
+        if let Some(cwd) = cwd {
+            command.current_dir(cwd);
+        }
+        let mut child = command
             .args(args)
             .stdin(Stdio::null())
             .stdout(File::create(&stdout).unwrap())
@@ -219,6 +226,60 @@ impl Daemon {
             stderr: fs::read(stderr).unwrap(),
         }
     }
+}
+
+#[test]
+fn owner_cli_selects_the_inspected_request_and_revokes_deleted_relative_paths() {
+    let (mut laptop, server) = paired();
+    server.rpc(json!({"op":"request", "body":"laptop", "tool":"true"}));
+    let inspected = laptop.cli(&["pending"]);
+    assert!(inspected.status.success());
+    let output = String::from_utf8(inspected.stdout).unwrap();
+    let id = output.split_whitespace().next().unwrap();
+    let pending = laptop.rpc(json!({"op":"pending"}));
+    assert_eq!(id, pending["requests"][0]["id"].as_str().unwrap());
+    server.rpc(json!({"op":"request", "body":"laptop", "tool":"false"}));
+    assert!(!laptop.cli(&["allow"]).status.success());
+    let allowed = laptop.cli(&["allow", id]);
+    assert!(
+        allowed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&allowed.stderr)
+    );
+    assert_eq!(laptop.hands().len(), 1);
+    assert_eq!(laptop.hands()[0].tool, "true");
+    assert!(laptop.hands()[0].once);
+    assert_eq!(
+        laptop.hands()[0].allow_from.as_ref().unwrap()[0].0,
+        "server"
+    );
+    laptop.restart();
+    assert!(!laptop.cli(&["allow", id]).status.success());
+    let b = laptop.rpc(json!({"op":"pending"}))["requests"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(laptop.cli(&["deny", &b]).status.success());
+    assert!(laptop.rpc(json!({"op":"pending"}))["requests"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    let tool = laptop.fixture("revocable", "exit 0");
+    let cwd = tool.parent().unwrap();
+    let added = laptop.cli_in(&["add", "./revocable"], Some(cwd));
+    assert!(
+        added.status.success(),
+        "{}",
+        String::from_utf8_lossy(&added.stderr)
+    );
+    fs::remove_file(&tool).unwrap();
+    let removed = laptop.cli_in(&["remove", "./revocable"], Some(cwd));
+    assert!(
+        removed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&removed.stderr)
+    );
+    assert!(laptop.hands().iter().all(|g| g.tool != "revocable"));
 }
 
 impl Drop for Daemon {

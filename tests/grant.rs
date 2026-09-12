@@ -165,6 +165,40 @@ fn remove_then_check_is_not_added() {
 }
 
 #[test]
+fn path_revocation_matches_stored_binary_even_after_deletion() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a/tool");
+    let b = dir.path().join("b/tool");
+    for path in [&a, &b] {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, b"fixture; never executed").unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let mut s = empty_store();
+    s.body_name = "laptop".into();
+    add(&mut s, a.to_str().unwrap(), &[], false, None, None).unwrap();
+    std::fs::remove_file(&a).unwrap();
+    remove(&mut s, a.to_str().unwrap()).unwrap();
+    assert!(s.grants.is_empty());
+    add(&mut s, b.to_str().unwrap(), &[], false, None, None).unwrap();
+    s.requests.push(clix::Request {
+        id: "pending-path".into(),
+        from: BodyId("server".into()),
+        tool: a.to_str().unwrap().into(),
+        once_suggested: true,
+    });
+    let before = s.grants.clone();
+    assert!(remove(&mut s, a.to_str().unwrap()).is_err());
+    assert_eq!(s.grants, before);
+    assert_eq!(s.requests.len(), 1);
+    std::fs::remove_file(&b).unwrap();
+    remove(&mut s, "tool").unwrap();
+    assert!(s.grants.is_empty());
+    assert!(s.requests.is_empty());
+}
+
+#[test]
 fn once_and_schedule_conflict() {
     let mut s = empty_store();
     let e = add(

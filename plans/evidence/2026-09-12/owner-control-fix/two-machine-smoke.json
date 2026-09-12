@@ -1,0 +1,35 @@
+{
+  "recorded_at": "2026-09-12T06:41:22.134685+00:00",
+  "command": "clix laptop adb devices (actual paired body name used; laptop is a public pseudonym)",
+  "invocation": "SSH invoked only the server CLI; Clix authenticated mesh transported the laptop tool execution.",
+  "binary_sha256": {
+    "laptop": "9200bf4d895ea5539aafcd9bc1b6f9047f4403da05453357695321ed4ad9a7a6",
+    "server": "e8e5d3441c0a3c7e39df60a7ce01067e215c9a89bd4668c3bad1bf81cde605fd"
+  },
+  "exit_code": 0,
+  "stdout": "List of devices attached\n\n",
+  "stderr": "",
+  "job_id": "9658b2cc-81f5-45c4-964e-69261b86553b",
+  "job_status": {
+    "Done": {
+      "exit": 0
+    }
+  },
+  "checks": {
+    "caller_runner_job_equal": true,
+    "exit_zero": true,
+    "location_correct": true,
+    "argv_correct": true,
+    "saved_output_matches_cli": true,
+    "laptop_authority_preserved": true,
+    "server_has_no_grants": true
+  },
+  "attached_device_count": 0,
+  "initial_harness_exit_code": 1,
+  "failed_assertion": "assert devices, 'adb returned no attached authorized device'",
+  "defeated_premise": "The smoke harness expected an attached authorized phone. adb returned an empty device list. That expectation was not satisfied.",
+  "follow_up": "Read the retained CLI result and both persisted job records; verified remote execution, matching output/status/location and unchanged authority state. Did not rerun the command or alter grants.",
+  "remote_execution_proved": true,
+  "attached_phone_access_reproved": false,
+  "scope": "Actual laptop/server execution after upgrade. No new denial, once-grant consumption, suspend or desktop proof. The earlier attached-phone result remains historical evidence; this run does not repeat it."
+}

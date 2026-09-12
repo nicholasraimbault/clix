@@ -13,8 +13,11 @@ and documentation changes; it adds no new two-machine or product-completion proo
 [Next work](2026-09-12-product-quality.md) records the owner's 2026-09-12 scope
 decision: **"just limit on laptop"**. The agent uses its normal development
 account on server; Clix restricts remote access to laptop through laptop-owner
-grants. Local agent isolation on server is outside scope. The proposed milestones
-and acceptance tests add no completed proof.
+grants. Local agent isolation on server is outside scope. Proposed milestones
+and acceptance tests are not completed proof. The
+[owner-control repair](2026-09-12-owner-control-fix.md) now completes explicit
+request selection and path revocation, and records a measured storage change;
+it does not complete the broader quality proposal.
 
 This is the owner's deployment scenario, not a restriction of Clix to laptops.
 
@@ -67,15 +70,27 @@ replay and Allow once through production notify-rust; this is not desktop UX
 proof. [An unavailable Tailscale command](evidence/2026-09-11/owner-offline.log)
 verified local status/add/hands/remove still work.
 
+The [owner-control repair](2026-09-12-owner-control-fix.md), based on
+`8837ee655caace2dc8a16272a97a3319b98c1d35`, fixes the two defects reproduced in the
+[disposable-state review](evidence/2026-09-12/owner-control-review.json): approval
+now requires a specific pending ID, and revocation accepts the stored executable
+path even after deletion. Grant changes invalidate stale request actions while
+retaining delivery receipts. Terminal, notification and tray actions use one
+decision implementation. Actual mixed-version CLI/daemon checks reject the new
+operations without changing state. **132 tests passed natively on each of the
+laptop and Debian server**, with release builds on both and fmt/clippy on the
+laptop; the new record identifies the exact source and test hashes separately
+from the original 125-test runtime evidence above. Both services now run their
+repaired binaries, with their entire decoded states unchanged across upgrade.
+The [new remote smoke](evidence/2026-09-12/owner-control-fix/two-machine-smoke.json)
+executed laptop's `adb devices` from server with exit 0 and matching saved jobs.
+Its attached-phone assertion failed: `adb` listed no devices. This proves real
+remote execution after upgrade, but does not repeat the earlier attached-phone
+result. The new storage measurement supports compact JSON formatting; it does
+not prove supported scale or bounded resource use.
+
 **Still incomplete or unproved:**
 
-- A [disposable-state review at `6957936`](evidence/2026-09-12/owner-control-review.json)
-  reproduced two owner-control defects in the unchanged request/grant modules.
-  Terminal `allow` selects the latest pending request, so a new arrival can
-  change the target after the owner reads `pending`. Adding by full executable
-  path and removing that same path fails to revoke; removal by the stored tool
-  name works. These findings remain unfixed. The harness called the production
-  functions directly; it did not run a daemon or execute a granted tool.
 - The laptop owner account remains trusted. The same-UID limitation still
   exists, but isolating an agent from its server development account is outside
   the owner's chosen scope. Do not claim protection against an agent already
@@ -92,8 +107,11 @@ verified local status/add/hands/remove still work.
 - Pin has the documented file/type/size limits; sync occurs at pairing and before
   remote execution, not as a continuous background replica. Arbitrary concurrent
   filesystem writers and crash durability have not been exhaustively proved.
-- State/log storage and retained versions grow without compaction. Large-tree
-  performance, disk exhaustion and operational longevity remain unproved.
+- Job/output inspection and pin recovery still need ordinary owner commands.
+- State/log storage and retained versions grow without compaction. Full-state
+  rewrites, dispatch scans, connections and process concurrency lack proved
+  operating limits. Large-tree performance, disk exhaustion and operational
+  longevity remain unproved.
 
 **Verdict: fix it.** Keep the repaired hand, identity, grant and durable delivery
 core. It now has native two-machine evidence. Do not call the whole accepted

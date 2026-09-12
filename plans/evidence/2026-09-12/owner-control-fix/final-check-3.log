@@ -1,0 +1,3 @@
+Command: cargo build --release --locked
+   Compiling clix v0.1.0 (<checkout>)
+    Finished `release` profile [optimized] target(s) in 5.22s

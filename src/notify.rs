@@ -70,13 +70,12 @@ fn show_os(r: &Request, store: Weak<Mutex<Store>>) -> Result<()> {
     let id = r.id.clone();
     std::thread::spawn(move || {
         handle.wait_for_action(|action| {
-            let action = if action == "default" { "once" } else { action };
-            if !ACTIONS.contains(&action) {
+            let Ok(decision) = crate::request::Decision::from_action(action) else {
                 return;
-            }
+            };
             if let Some(store) = store.upgrade() {
                 let mut s = store.lock().unwrap_or_else(|e| e.into_inner());
-                if let Err(e) = s.update(|s| crate::request::apply_action(s, &id, action)) {
+                if let Err(e) = s.update(|s| crate::request::decide(s, &id, decision)) {
                     eprintln!("could not apply notification action: {e}");
                 }
             }

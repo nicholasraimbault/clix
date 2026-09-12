@@ -145,8 +145,11 @@ async fn handle_rpc(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: Value) ->
         "pair_await" => rpc_pair_await(store, mesh).await,
         "request" => rpc_request(store, mesh, &req).await,
         "pending" => rpc_pending(store),
-        "allow" => rpc_allow(store, &req),
-        "deny" => rpc_deny(store),
+        "allow_request" => rpc_allow(store, &req),
+        "deny_request" => rpc_deny(store, &req),
+        "allow" | "deny" => Err(ClixError::Usage(
+            "update the Clix client and select a request ID from clix pending".into(),
+        )),
         other => Err(ClixError::Usage(format!("unknown op: {other}"))),
     }
 }
@@ -341,20 +344,45 @@ fn rpc_pending(store: &Arc<Mutex<Store>>) -> Result<Value> {
 }
 
 fn rpc_allow(store: &Arc<Mutex<Store>>, req: &Value) -> Result<Value> {
+    let id = request_id(req)?;
     validate_grant_fields(req)?;
     let allow = json_string_list(req.get("allow"));
     let once = req.get("once").and_then(Value::as_bool).unwrap_or(true);
     let until = rpc_until(req)?;
     let schedule = rpc_schedule(req)?;
     let mut store = lock_store(store);
-    let grant = store.update(|s| request::allow(s, &allow, once, until, schedule))?;
-    Ok(json!({"ok": true, "tool": grant.tool, "once": grant.once}))
+    let scope = if allow.is_empty() {
+        request::Scope::Requester
+    } else {
+        request::Scope::Bodies(allow)
+    };
+    let grant = store.update(|s| {
+        request::decide(
+            s,
+            id,
+            request::Decision::Allow {
+                scope,
+                once,
+                until,
+                schedule,
+            },
+        )
+    })?;
+    Ok(json!({"ok": true, "request_id": id, "grant": grant}))
 }
 
-fn rpc_deny(store: &Arc<Mutex<Store>>) -> Result<Value> {
+fn request_id(req: &Value) -> Result<&str> {
+    req.get("request_id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| ClixError::Usage("provide a request ID from clix pending".into()))
+}
+
+fn rpc_deny(store: &Arc<Mutex<Store>>, req: &Value) -> Result<Value> {
+    let id = request_id(req)?;
     let mut store = lock_store(store);
-    store.update(request::deny)?;
-    Ok(json!({"ok": true}))
+    store.update(|s| request::decide(s, id, request::Decision::Deny))?;
+    Ok(json!({"ok": true, "request_id": id}))
 }
 
 fn rpc_log(store: &Arc<Mutex<Store>>) -> Result<Value> {
@@ -587,7 +615,9 @@ pub(crate) fn rpc_from_cmd(cmd: &Cmd) -> Result<Value> {
             "weekdays": weekdays,
         })),
         Cmd::Hands => Ok(json!({"op": "hands"})),
-        Cmd::Remove { tool } => Ok(json!({"op": "remove", "tool": tool})),
+        Cmd::Remove { tool } => {
+            Ok(json!({"op": "remove", "tool": crate::grant::removal_target(tool)?}))
+        }
         Cmd::Exec {
             body,
             argv,
@@ -605,6 +635,7 @@ pub(crate) fn rpc_from_cmd(cmd: &Cmd) -> Result<Value> {
         Cmd::Log => Ok(json!({"op": "log"})),
         Cmd::Pending => Ok(json!({"op": "pending"})),
         Cmd::Allow {
+            request_id,
             allow,
             once,
             for_dur,
@@ -615,7 +646,8 @@ pub(crate) fn rpc_from_cmd(cmd: &Cmd) -> Result<Value> {
             to,
             weekdays,
         } => Ok(json!({
-            "op": "allow",
+            "op": "allow_request",
+            "request_id": request_id,
             "allow": allow,
             "once": once,
             "for_secs": for_dur.map(|d| d.as_secs()),
@@ -626,7 +658,7 @@ pub(crate) fn rpc_from_cmd(cmd: &Cmd) -> Result<Value> {
             "to": to,
             "weekdays": weekdays,
         })),
-        Cmd::Deny => Ok(json!({"op": "deny"})),
+        Cmd::Deny { request_id } => Ok(json!({"op": "deny_request", "request_id": request_id})),
         Cmd::Request { body, tool } => Ok(json!({
             "op": "request",
             "body": body,
@@ -662,9 +694,10 @@ pub(crate) fn emit_rpc(cmd: &Cmd, v: &Value) -> Result<()> {
         Cmd::Pending => {
             if let Some(arr) = v.get("requests").and_then(Value::as_array) {
                 for r in arr {
+                    let id = r.get("id").and_then(Value::as_str).unwrap_or("?");
                     let from = r.get("from").and_then(Value::as_str).unwrap_or("?");
                     let tool = r.get("tool").and_then(Value::as_str).unwrap_or("?");
-                    println!("{from} wants {tool}");
+                    println!("{id}  {from} wants {tool}");
                 }
             }
             Ok(())

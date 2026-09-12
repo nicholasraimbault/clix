@@ -121,7 +121,7 @@ impl Store {
         let tmp = self
             .dir
             .join(format!("state-{}.tmp", crate::job::new_id()?));
-        let json = serde_json::to_vec_pretty(self)?;
+        let json = serde_json::to_vec(self)?;
         let result = (|| -> Result<()> {
             let mut file = OpenOptions::new()
                 .write(true)

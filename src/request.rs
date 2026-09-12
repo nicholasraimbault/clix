@@ -118,67 +118,128 @@ pub fn pending(store: &Store) -> &[Request] {
     &store.requests
 }
 
-/// Grant the latest request. Default is `--once` for the requesting body.
-pub fn allow(
-    store: &mut Store,
-    allow: &[String],
-    once: bool,
-    until: Option<SystemTime>,
-    schedule: Option<Schedule>,
-) -> Result<Grant> {
-    let req = store
-        .requests
-        .last()
-        .cloned()
-        .ok_or_else(|| ClixError::Usage("no pending request".into()))?;
-    let allow = if allow.is_empty() {
-        vec![req.from.0.clone()]
-    } else {
-        allow.to_vec()
-    };
-    let grant = grant::add(store, &req.tool, &allow, once, until, schedule)?;
-    store.requests.pop();
-    Ok(grant)
+#[derive(Clone)]
+pub(crate) enum Scope {
+    Requester,
+    Bodies(Vec<String>),
+    AllPaired,
 }
 
-pub fn deny(store: &mut Store) -> Result<Request> {
-    store
-        .requests
-        .pop()
-        .ok_or_else(|| ClixError::Usage("no pending request".into()))
+#[derive(Clone)]
+pub(crate) enum Decision {
+    Allow {
+        scope: Scope,
+        once: bool,
+        until: Option<SystemTime>,
+        schedule: Option<Schedule>,
+    },
+    Deny,
 }
 
-/// Apply a notification action to a specific pending request.
-///
-/// `once` grants `--once` for the requester. `allow` grants until remove for
-/// every body. `deny` drops that row.
-pub fn apply_action(store: &mut Store, id: &str, action: &str) -> Result<()> {
+impl Decision {
+    /// Native action names are translated once, with their authority explicit.
+    pub(crate) fn from_action(action: &str) -> Result<Self> {
+        match action {
+            "default" | "once" => Ok(Self::Allow {
+                scope: Scope::Requester,
+                once: true,
+                until: None,
+                schedule: None,
+            }),
+            "allow" => Ok(Self::Allow {
+                scope: Scope::AllPaired,
+                once: false,
+                until: None,
+                schedule: None,
+            }),
+            "deny" => Ok(Self::Deny),
+            _ => Err(ClixError::Usage("unknown request action".into())),
+        }
+    }
+}
+
+/// Caller commits this decision in Store::update. IDs never select another row.
+pub(crate) fn decide(store: &mut Store, id: &str, decision: Decision) -> Result<Option<Grant>> {
     let idx = store
         .requests
         .iter()
         .position(|r| r.id == id)
-        .ok_or_else(|| ClixError::Usage("no pending request".into()))?;
+        .filter(|_| !id.is_empty())
+        .ok_or_else(|| ClixError::Usage("request is no longer pending; run clix pending".into()))?;
     let req = store.requests[idx].clone();
-    match action {
-        "once" => {
-            grant::add(
-                store,
-                &req.tool,
-                std::slice::from_ref(&req.from.0),
-                true,
-                None,
-                None,
-            )?;
-            store.requests.remove(idx);
+    match decision {
+        Decision::Allow {
+            scope,
+            once,
+            until,
+            schedule,
+        } => {
+            let allow = match scope {
+                Scope::Requester => vec![req.from.0],
+                Scope::Bodies(bodies) if !bodies.is_empty() => bodies,
+                Scope::Bodies(_) => {
+                    return Err(ClixError::Usage(
+                        "approval body list must not be empty".into(),
+                    ))
+                }
+                Scope::AllPaired => Vec::new(),
+            };
+            // add also invalidates every older request for this grant slot.
+            grant::add(store, &req.tool, &allow, once, until, schedule).map(Some)
         }
-        "allow" => {
-            grant::add(store, &req.tool, &[], false, None, None)?;
+        Decision::Deny => {
             store.requests.remove(idx);
+            Ok(None)
         }
-        "deny" => {
-            store.requests.remove(idx);
-        }
-        _ => return Ok(()),
     }
-    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::Peer;
+
+    #[test]
+    fn native_decisions_keep_their_scope_and_failed_persistence_keeps_the_request() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path()).unwrap();
+        store.body_name = "laptop".into();
+        store.peers.push(Peer {
+            name: BodyId("server".into()),
+            owner_pk: vec![1; 32],
+            addr: None,
+        });
+        let req = store
+            .update(|s| upsert(s, BodyId("server".into()), "true"))
+            .unwrap();
+        store
+            .update(|s| decide(s, &req.id, Decision::from_action("default")?))
+            .unwrap();
+        assert!(store.grants[0].once);
+        assert_eq!(
+            store.grants[0].allow_from,
+            Some(vec![BodyId("server".into())])
+        );
+        let req = store
+            .update(|s| upsert(s, BodyId("server".into()), "true"))
+            .unwrap();
+        store
+            .update(|s| decide(s, &req.id, Decision::from_action("allow")?))
+            .unwrap();
+        assert!(!store.grants[0].once);
+        assert_eq!(store.grants[0].allow_from, None);
+        let req = store
+            .update(|s| upsert(s, BodyId("server".into()), "false"))
+            .unwrap();
+        let before = store.grants.clone();
+        // Isolated failure: replacing state.json with a directory makes rename fail.
+        std::fs::remove_file(dir.path().join("state.json")).unwrap();
+        std::fs::create_dir(dir.path().join("state.json")).unwrap();
+        assert!(store
+            .update(|s| decide(s, &req.id, Decision::from_action("once")?))
+            .is_err());
+        assert_eq!(store.grants, before);
+        assert_eq!(store.requests[0].id, req.id);
+        assert!(store.ensure_writable().is_err());
+    }
 }

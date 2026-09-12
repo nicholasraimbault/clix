@@ -30,6 +30,8 @@ async fn mesh_rejects_all_owner_and_result_injection_operations() {
         "remove",
         "allow",
         "deny",
+        "allow_request",
+        "deny_request",
         "pair",
         "pair_start",
         "pair_join",
@@ -39,7 +41,7 @@ async fn mesh_rejects_all_owner_and_result_injection_operations() {
         let e = server
             .mesh_raw(
                 laptop.mesh_addr(),
-                json!({"op":op,"tool":"true","from":"laptop","job":{"status":{"Done":{"exit":0}}}}),
+                json!({"op":op,"request_id":"req-1","tool":"true","from":"laptop","job":{"status":{"Done":{"exit":0}}}}),
             )
             .await
             .unwrap_err();

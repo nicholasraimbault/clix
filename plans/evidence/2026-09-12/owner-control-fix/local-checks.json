@@ -1,0 +1,40 @@
+{
+  "base_revision": "8837ee655caace2dc8a16272a97a3319b98c1d35",
+  "checks": [
+    {
+      "command": "cargo fmt --all -- --check",
+      "exit_code": 0,
+      "log": "final-check-0.log",
+      "published_log_sha256": "310d968c9dde5e337aabaf6933225a0709b7a790e75c38d534ec693e5e9cc817"
+    },
+    {
+      "command": "cargo clippy --locked --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "final-check-1.log",
+      "published_log_sha256": "36523a449d59e0e9fe73b07f4382083dcd8f3038432b7343f49996fbc5b8a624"
+    },
+    {
+      "command": "cargo test --locked",
+      "exit_code": 0,
+      "log": "final-check-2.log",
+      "test_totals": {
+        "passed": 132,
+        "failed": 0,
+        "ignored": 0
+      },
+      "published_log_sha256": "10a0f809f0a49ad433704df68fe33ef7b898fbaad26799a97a803dd9cb18a55d"
+    },
+    {
+      "command": "cargo build --release --locked",
+      "exit_code": 0,
+      "log": "final-check-3.log",
+      "published_log_sha256": "86abab983d3b547d49c45867293c8d12a318799c4f8f6575023e10823e814eba"
+    }
+  ],
+  "release_binary_sha256": "9200bf4d895ea5539aafcd9bc1b6f9047f4403da05453357695321ed4ad9a7a6",
+  "source_manifest": "source-sha256.json",
+  "source_manifest_sha256": "75bd4359f4de396824d30320de589a208d4a33109343922ecde6fb29f633fde4",
+  "host": "laptop (CachyOS, Arch-derived)",
+  "rustc": "1.96.0",
+  "redaction": "Absolute checkout path replaced with <checkout> in captured logs; raw originals retained privately."
+}

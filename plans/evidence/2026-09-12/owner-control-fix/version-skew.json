@@ -1,0 +1,161 @@
+{
+  "started_at": "2026-09-12T06:30:04.392731+00:00",
+  "artifacts": {
+    "old_daemon": {
+      "sha256": "f2d6544db91a95fa68a332d7fe816248ebd1b7940af2196b4e71dfc44268df18",
+      "baseline_revision": "8837ee655caace2dc8a16272a97a3319b98c1d35",
+      "source_manifest_sha256": "4851b3506f8583f2a5df89a5a44a8068a2fb080e519b1eb7405e0e6490b2860c",
+      "source_files_verified": 29
+    },
+    "new_cli": {
+      "sha256": "9f733c4694f010805d532cd196062a32a2d00fc86eb6a678549f625aaf05e240",
+      "copied_from": "<PROJECT>/target/debug/clix",
+      "source_scope": "Current uncommitted owner-control fixes; artifact hash identifies the tested binary."
+    }
+  },
+  "commands": [
+    {
+      "argv": [
+        "<ARTIFACT>/old-daemon",
+        "daemon"
+      ],
+      "cwd": "<TEMP>",
+      "environment": "environment field"
+    },
+    {
+      "owner_rpc": {
+        "op": "request",
+        "body": "skew-body",
+        "tool": "true"
+      },
+      "response": {
+        "ok": true,
+        "request": {
+          "from": "skew-body",
+          "id": "c9060d82-4759-481d-a9f8-4504648b74f1",
+          "once_suggested": true,
+          "tool": "true"
+        }
+      }
+    },
+    {
+      "owner_rpc": {
+        "op": "request",
+        "body": "skew-body",
+        "tool": "false"
+      },
+      "response": {
+        "ok": true,
+        "request": {
+          "from": "skew-body",
+          "id": "64c736a2-55c4-4e01-80aa-cfbb5592c91c",
+          "once_suggested": true,
+          "tool": "false"
+        }
+      }
+    },
+    {
+      "argv": [
+        "<ARTIFACT>/new-cli",
+        "allow",
+        "c9060d82-4759-481d-a9f8-4504648b74f1"
+      ],
+      "cwd": "<TEMP>"
+    },
+    {
+      "argv": [
+        "<ARTIFACT>/new-cli",
+        "deny",
+        "c9060d82-4759-481d-a9f8-4504648b74f1"
+      ],
+      "cwd": "<TEMP>"
+    }
+  ],
+  "checks": [
+    {
+      "action": "allow",
+      "request_id": "c9060d82-4759-481d-a9f8-4504648b74f1",
+      "exit_code": 1,
+      "stdout": "",
+      "stderr": "unknown op: allow_request\n",
+      "state_unchanged": true,
+      "expected_unknown_operation": true,
+      "passed": true
+    },
+    {
+      "action": "deny",
+      "request_id": "c9060d82-4759-481d-a9f8-4504648b74f1",
+      "exit_code": 1,
+      "stdout": "",
+      "stderr": "unknown op: deny_request\n",
+      "state_unchanged": true,
+      "expected_unknown_operation": true,
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "scope": "Actual new CLI against actual baseline daemon on private Unix socket and loopback mesh only. Synthetic disposable state, no paired machines, no tool execution, no installed service changes. This is version-skew proof, not two-machine runtime proof.",
+  "environment": {
+    "CLIX_HOME": "<TEMP>/state",
+    "CLIX_SOCK": "<TEMP>/owner.sock",
+    "CLIX_PIN": "<TEMP>/pin",
+    "CLIX_MESH_BIND": "127.0.0.1:0",
+    "CLIX_NOTIFY": "0",
+    "CLIX_TRAY": "0",
+    "CLIX_WAIT_POLL": "50ms",
+    "TOKIO_WORKER_THREADS": "2"
+  },
+  "daemon_mesh_bound_to_loopback": true,
+  "target_is_nonlatest": true,
+  "before": {
+    "pending": {
+      "ok": true,
+      "requests": [
+        {
+          "from": "skew-body",
+          "id": "c9060d82-4759-481d-a9f8-4504648b74f1",
+          "once_suggested": true,
+          "tool": "true"
+        },
+        {
+          "from": "skew-body",
+          "id": "64c736a2-55c4-4e01-80aa-cfbb5592c91c",
+          "once_suggested": true,
+          "tool": "false"
+        }
+      ]
+    },
+    "hands": {
+      "hands": []
+    },
+    "state_sha256": "2d2639b19e1e6c45c631c43354cb6b066b5c46670734c9049c828563601741b8"
+  },
+  "after": {
+    "pending": {
+      "ok": true,
+      "requests": [
+        {
+          "from": "skew-body",
+          "id": "c9060d82-4759-481d-a9f8-4504648b74f1",
+          "once_suggested": true,
+          "tool": "true"
+        },
+        {
+          "from": "skew-body",
+          "id": "64c736a2-55c4-4e01-80aa-cfbb5592c91c",
+          "once_suggested": true,
+          "tool": "false"
+        }
+      ]
+    },
+    "hands": {
+      "hands": []
+    },
+    "state_sha256": "2d2639b19e1e6c45c631c43354cb6b066b5c46670734c9049c828563601741b8"
+  },
+  "daemon_stopped": true,
+  "daemon_stderr": "",
+  "finished_at": "2026-09-12T06:30:04.453120+00:00",
+  "temporary_state_removed": true,
+  "harness_sha256": "d65ef1b6f04bef13ed09897dea760d0b514b9ac9cceb6f2ef53c975dd382ad46"
+}

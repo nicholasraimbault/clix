@@ -44,6 +44,10 @@ reachable over their tailnet for pairing and remote work. Local owner controls
 remain available when Tailscale is off. Desktop notifications and the tray use
 the session D-Bus; the terminal commands also work headlessly.
 
+After upgrading the binary, restart the service with
+`systemctl --user restart clix.service`. Upgrade the CLI and daemon together;
+mixed versions refuse approval commands whose request targeting they cannot honor.
+
 **Before pairing:** Clix automatically pins `~/src` on both machines. Pairing and
 each remote execution synchronize that directory in both directions, including
 deletions after a shared baseline. Review its contents first. Conflicts stop
@@ -90,6 +94,8 @@ name in remote commands. On this machine, run tools normally.
 Without `--allow`, an added tool is available to every paired machine.
 `--once` permits one successful run; `--for 2h` limits the grant's lifetime.
 Revoke a grant on the machine that added it with `clix remove adb`.
+You can also pass its stored executable path, even after that file is deleted.
+A different executable with the same basename is not a matching path.
 
 A grant exposes the binary's capabilities under the owner's account. Clix does
 not constrain its arguments or sandbox its subprocesses, files or network access.
@@ -108,8 +114,21 @@ Offline jobs and explicit requests are saved on the caller and retried after
 restart. `clix --no-wait laptop adb devices` prints the job ID while the job is
 waiting or running; an already-completed command returns its result.
 `clix request laptop adb` asks for permission without executing. The owner
-handles requests on the target through native notifications or `clix pending`,
-`clix allow` (default: once), and `clix deny`.
+handles requests on the target through native notifications, the tray, or the
+terminal:
+
+```sh
+clix pending
+clix allow REQUEST_ID
+# Or: clix deny REQUEST_ID
+```
+
+Copy the ID printed by `clix pending`. Terminal approval defaults to one
+successful run by the requester. Grant flags select permitted paired machines
+and set a duration. Native **Allow once** has the same requester scope;
+native **Allow** grants all paired machines until revoked. A grant change or
+revocation invalidates older pending IDs for that tool. Stale actions fail
+without selecting another request or overwriting the newer owner decision.
 
 A restarted runner reports an interrupted job as **uncertain** and retains its
 single-use reservation. Inspect the actual command's effects before replacing

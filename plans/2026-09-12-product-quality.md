@@ -9,6 +9,12 @@ The owner later authorized private pushes and publication of the sanitized
 replacement repository; the [publication record](2026-09-12-publication.md)
 records those completed steps. Publication does not complete this work proposal.
 
+The later [owner-control repair](2026-09-12-owner-control-fix.md) completes
+request selection by ID across terminal and native actions, fixes path
+revocation and measures one storage improvement. Its test and artifact records
+are completed proof for that scope. Shared history, the rest of owner recovery,
+operating limits and daily-use proof below remain unfinished.
+
 The working release scenario is concrete: work on server, use a granted tool on
 laptop, inspect the work from either machine, and continue after the laptop
 returns. Complete and prove one milestone before relying on it for the next.
