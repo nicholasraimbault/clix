@@ -299,9 +299,18 @@ async fn handle_mesh_req(
         "job_poll" => rpc_job_poll(store, handle, peer, &req),
         "job_result" => rpc_job_result(store, handle, peer, &req),
         "request" => rpc_request(store, peer, &req),
-        "pin_list" => crate::pin::rpc_list(),
-        "pin_get" => crate::pin::rpc_get(&req),
-        "pin_put" => crate::pin::rpc_put(&req),
+        "pin_list" => {
+            let s = lock_store(store);
+            crate::pin::rpc_list(&s)
+        }
+        "pin_get" => {
+            let s = lock_store(store);
+            crate::pin::rpc_get(&s, &req)
+        }
+        "pin_put" => {
+            let s = lock_store(store);
+            crate::pin::rpc_put(&s, &req)
+        }
         "" => Err(ClixError::Usage("missing op".into())),
         other => Err(ClixError::Usage(format!("unknown op: {other}"))),
     }
@@ -312,11 +321,7 @@ async fn pin_before_exec(store: &Arc<Mutex<Store>>, peer: &Peer) -> Result<()> {
         return Ok(());
     };
     let sk = lock_store(store).owner_sk.clone();
-    match crate::pin::sync_with_peer(store, &sk, &addr, &peer.name.0).await {
-        Ok(()) => Ok(()),
-        Err(e) if crate::pin::is_conflict(&e) => Err(e),
-        Err(_) => Ok(()),
-    }
+    crate::pin::sync_with_peer(store, &sk, &addr, &peer.name.0).await
 }
 
 fn rpc_request(store: &Arc<Mutex<Store>>, peer: &Peer, req: &Value) -> Result<Value> {
@@ -382,6 +387,7 @@ fn rpc_job_result(
 pub async fn claim_waiting_jobs(store: Arc<Mutex<Store>>, local_addr: String) {
     if let Err(e) = crate::pin::sync_with_peers(store.clone()).await {
         eprintln!("{e}");
+        return;
     }
     let (peers, sk, name) = {
         let s = lock_store(&store);

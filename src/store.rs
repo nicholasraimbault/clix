@@ -17,6 +17,9 @@ pub struct PinIndex {
     /// Relative path → sha256 hex at last successful sync.
     #[serde(default)]
     pub hashes: BTreeMap<String, String>,
+    /// Set on pin conflict; cleared only after a successful sync.
+    #[serde(default)]
+    pub last_error: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -35,6 +38,9 @@ pub struct Store {
     pub requests: Vec<Request>,
     #[serde(default)]
     pub pin_index: PinIndex,
+    /// Test/override pin tree. Production uses `CLIX_PIN` or `~/src`.
+    #[serde(skip)]
+    pub pin_dir: Option<PathBuf>,
 }
 
 impl Store {
@@ -60,6 +66,7 @@ impl Store {
                 jobs: Vec::new(),
                 requests: Vec::new(),
                 pin_index: PinIndex::default(),
+                pin_dir: None,
             };
             store.save()?;
             Ok(store)

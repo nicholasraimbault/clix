@@ -28,6 +28,14 @@ pub fn pin_dir() -> PathBuf {
     PathBuf::from(home).join("src")
 }
 
+pub fn pin_root(store: &Store) -> PathBuf {
+    store
+        .pin_dir
+        .clone()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(pin_dir)
+}
+
 /// Two-way copy between local pin trees. Conflict if both wrote since last sync.
 pub fn sync(store: &mut Store, local: &Path, remote: &Path, peer_name: &str) -> Result<()> {
     let local_files = scan(local)?;
@@ -55,18 +63,13 @@ pub async fn sync_with_peers(store: Arc<Mutex<Store>>) -> Result<()> {
         let s = lock_store(&store);
         (s.peers.clone(), s.owner_sk.clone())
     };
-    let mut conflict = None;
     for peer in peers {
-        match sync_after_pair(&store, &sk, &peer).await {
-            Ok(()) => {}
-            Err(e) if is_conflict(&e) => conflict = Some(e),
-            Err(_) => {}
-        }
+        let Some(addr) = peer.addr.clone() else {
+            continue;
+        };
+        sync_with_peer(&store, &sk, &addr, &peer.name.0).await?;
     }
-    match conflict {
-        Some(e) => Err(e),
-        None => Ok(()),
-    }
+    Ok(())
 }
 
 pub async fn sync_with_peer(
@@ -75,7 +78,27 @@ pub async fn sync_with_peer(
     addr: &str,
     peer_name: &str,
 ) -> Result<()> {
-    let local_root = pin_dir();
+    match sync_with_peer_inner(store, owner_sk, addr, peer_name).await {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            if is_conflict(&e) {
+                remember_conflict(store, &e);
+            }
+            Err(e)
+        }
+    }
+}
+
+async fn sync_with_peer_inner(
+    store: &Arc<Mutex<Store>>,
+    owner_sk: &[u8],
+    addr: &str,
+    peer_name: &str,
+) -> Result<()> {
+    let local_root = {
+        let s = lock_store(store);
+        pin_root(&s)
+    };
     let local_files = scan(&local_root)?;
     let list = crate::mesh::call(addr, owner_sk, json!({"op": "pin_list"})).await?;
     let remote_files = files_from_list(&list)?;
@@ -122,19 +145,22 @@ pub async fn sync_with_peer(
     record_index(&mut s, &synced)
 }
 
+/// After pair, 401/unknown peer is the only pin failure mapped to Ok (the
+/// other sidecar may not have persisted us yet). I/O, decode, and conflict
+/// still surface.
 pub async fn sync_after_pair(store: &Arc<Mutex<Store>>, sk: &[u8], peer: &Peer) -> Result<()> {
     let Some(addr) = peer.addr.as_deref() else {
         return Ok(());
     };
     match sync_with_peer(store, sk, addr, &peer.name.0).await {
         Ok(()) => Ok(()),
-        Err(e) if is_conflict(&e) => Err(e),
-        Err(_) => Ok(()),
+        Err(e) if is_unknown_peer(&e) => Ok(()),
+        Err(e) => Err(e),
     }
 }
 
-pub(crate) fn rpc_list() -> Result<Value> {
-    let files: Vec<Value> = scan(&pin_dir())?
+pub(crate) fn rpc_list(store: &Store) -> Result<Value> {
+    let files: Vec<Value> = scan(&pin_root(store))?
         .into_iter()
         .map(|(path, meta)| {
             json!({
@@ -147,9 +173,9 @@ pub(crate) fn rpc_list() -> Result<Value> {
     Ok(json!({"ok": true, "files": files}))
 }
 
-pub(crate) fn rpc_get(req: &Value) -> Result<Value> {
+pub(crate) fn rpc_get(store: &Store, req: &Value) -> Result<Value> {
     let rel = req.get("path").and_then(Value::as_str).unwrap_or("");
-    let path = safe_join(&pin_dir(), rel)?;
+    let path = safe_join(&pin_root(store), rel)?;
     let bytes = fs::read(&path)?;
     let mtime = fs::metadata(&path)?.modified().unwrap_or(UNIX_EPOCH);
     Ok(json!({
@@ -161,10 +187,10 @@ pub(crate) fn rpc_get(req: &Value) -> Result<Value> {
     }))
 }
 
-pub(crate) fn rpc_put(req: &Value) -> Result<Value> {
+pub(crate) fn rpc_put(store: &Store, req: &Value) -> Result<Value> {
     let rel = req.get("path").and_then(Value::as_str).unwrap_or("");
     let content = hex_decode(req.get("content").and_then(Value::as_str).unwrap_or(""))?;
-    let dest = safe_join(&pin_dir(), rel)?;
+    let dest = safe_join(&pin_root(store), rel)?;
     if let Some(parent) = dest.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -173,7 +199,17 @@ pub(crate) fn rpc_put(req: &Value) -> Result<Value> {
 }
 
 pub(crate) fn is_conflict(e: &ClixError) -> bool {
-    matches!(e, ClixError::PinConflict { .. })
+    matches!(e, ClixError::PinConflict { .. }) || e.to_string().contains("Not merging")
+}
+
+fn is_unknown_peer(e: &ClixError) -> bool {
+    e.to_string().contains("unknown peer")
+}
+
+fn remember_conflict(store: &Arc<Mutex<Store>>, e: &ClixError) {
+    let mut s = lock_store(store);
+    s.pin_index.last_error = Some(e.to_string());
+    let _ = s.save();
 }
 
 fn body_name(store: &Store) -> String {
@@ -290,6 +326,7 @@ fn record_index(store: &mut Store, files: &BTreeMap<String, FileMeta>) -> Result
         .iter()
         .map(|(k, v)| (k.clone(), v.hash.clone()))
         .collect();
+    store.pin_index.last_error = None;
     store.save()
 }
 

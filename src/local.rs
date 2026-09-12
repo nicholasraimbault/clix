@@ -209,10 +209,28 @@ async fn rpc_exec<W: AsyncWriteExt + Unpin>(
         .await?;
         return Ok(());
     };
-    if let Err(e) = crate::pin::sync_with_peer(store, &sk, &addr, body).await {
-        if crate::pin::is_conflict(&e) {
-            return Err(e);
+    match crate::pin::sync_with_peer(store, &sk, &addr, body).await {
+        Ok(()) => {}
+        Err(e) if job::is_unreachable(&e) => {
+            let from = BodyId(this);
+            let dest = BodyId(body.to_string());
+            let waiting = job::append(store, from, dest, argv.clone(), JobStatus::WaitingBody)?;
+            write_json(writer, &job::waiting_json(body, &waiting)).await?;
+            let store = store.clone();
+            let woke = mesh.woke.clone();
+            let body = body.to_string();
+            let sk = sk.clone();
+            if no_wait {
+                tokio::spawn(async move {
+                    let _ = job::wait_for_peer(&store, &woke, &body, &sk, &argv, &waiting).await;
+                });
+                return Ok(());
+            }
+            let resp = job::wait_for_peer(&store, &woke, &body, &sk, &argv, &waiting).await?;
+            write_json(writer, &resp).await?;
+            return Ok(());
         }
+        Err(e) => return Err(e),
     }
     match mesh::call(&addr, &sk, json!({"op": "exec", "argv": argv})).await {
         Ok(resp) => {

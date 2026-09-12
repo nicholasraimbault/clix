@@ -52,6 +52,23 @@ pub(crate) fn exec_with_job(
                 }
             }
         }
+        if let Some(reason) = s.pin_index.last_error.clone() {
+            let job = Job {
+                id,
+                body,
+                argv: argv.to_vec(),
+                from: from.clone(),
+                status: JobStatus::Failed {
+                    reason: reason.clone(),
+                },
+            };
+            s.put_job(job.clone())?;
+            return Ok(json!({
+                "status": "failed",
+                "reason": reason,
+                "job": job,
+            }));
+        }
         match grant::check(&s, &argv[0], from) {
             Ok(g) => {
                 if job_id.is_some() {

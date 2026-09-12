@@ -38,10 +38,12 @@ impl TestDaemon {
         std::env::set_var("CLIX_NOTIFY", "0");
         std::env::set_var("CLIX_TRAY", "0");
         let home = tempfile::tempdir().unwrap();
-        std::env::set_var("CLIX_PIN", home.path().join("src"));
+        let pin = home.path().join("src");
+        std::env::set_var("CLIX_PIN", &pin);
         let sock = home.path().join("clix.sock");
         let mut store = Store::open(home.path()).unwrap();
         store.body_name = name.to_string();
+        store.pin_dir = Some(pin);
         store.save().unwrap();
         let owner_sk = store.owner_sk.clone();
         let store = Arc::new(Mutex::new(store));
@@ -77,8 +79,11 @@ impl TestDaemon {
     pub async fn restart(&self) -> Self {
         self.kill().await;
         let dir = self.proc.home.path();
-        std::env::set_var("CLIX_PIN", dir.join("src"));
-        let store = Store::open(dir).unwrap();
+        let pin = dir.join("src");
+        std::env::set_var("CLIX_PIN", &pin);
+        let mut store = Store::open(dir).unwrap();
+        store.pin_dir = Some(pin);
+        store.save().unwrap();
         let owner_sk = store.owner_sk.clone();
         let store = Arc::new(Mutex::new(store));
         let mesh = rebind_mesh(&self.mesh_addr).await;
@@ -98,6 +103,11 @@ impl TestDaemon {
     #[allow(dead_code)]
     pub fn mesh_addr(&self) -> &str {
         &self.mesh_addr
+    }
+
+    #[allow(dead_code)]
+    pub fn pin_dir(&self) -> PathBuf {
+        self.proc.home.path().join("src")
     }
 
     #[allow(dead_code)]

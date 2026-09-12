@@ -27,7 +27,7 @@ pub use mesh::{call as mesh_call, MeshHandle, MeshListener};
 pub use notify::{notify_request, set_notify_hook, NotifyHook};
 pub use pair::{pair_join, pair_listen, phrase};
 pub use paths::{socket_path, state_dir, state_file};
-pub use pin::sync as pin_sync;
+pub use pin::{sync as pin_sync, sync_after_pair};
 pub use store::Store;
 pub use tailscale::{tailscale_status, PeerAddr};
 pub use tray::tray_tooltip;
