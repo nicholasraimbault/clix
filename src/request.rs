@@ -11,22 +11,25 @@ pub fn upsert(store: &mut Store, from: BodyId, tool: &str) -> Result<Request> {
     if tool.is_empty() {
         return Err(ClixError::Usage("usage: clix request <body> <tool>".into()));
     }
-    if let Some(existing) = store
+    let req = if let Some(existing) = store
         .requests
         .iter_mut()
         .rev()
         .find(|r| r.from == from && r.tool == tool)
     {
         existing.once_suggested = true;
-        return Ok(existing.clone());
-    }
-    let req = Request {
-        id: job::new_id()?,
-        from,
-        tool: tool.to_string(),
-        once_suggested: true,
+        existing.clone()
+    } else {
+        let req = Request {
+            id: job::new_id()?,
+            from,
+            tool: tool.to_string(),
+            once_suggested: true,
+        };
+        store.requests.push(req.clone());
+        req
     };
-    store.requests.push(req.clone());
+    let _ = crate::notify::notify_request(&req);
     Ok(req)
 }
 
@@ -62,4 +65,39 @@ pub fn deny(store: &mut Store) -> Result<Request> {
         .requests
         .pop()
         .ok_or_else(|| ClixError::Usage("no pending request".into()))
+}
+
+/// Apply a notification action to a specific pending request.
+///
+/// `once` grants `--once` for the requester. `allow` grants until remove for
+/// every body. `deny` drops that row.
+pub fn apply_action(store: &mut Store, id: &str, action: &str) -> Result<()> {
+    let idx = store
+        .requests
+        .iter()
+        .position(|r| r.id == id)
+        .ok_or_else(|| ClixError::Usage("no pending request".into()))?;
+    let req = store.requests[idx].clone();
+    match action {
+        "once" => {
+            grant::add(
+                store,
+                &req.tool,
+                std::slice::from_ref(&req.from.0),
+                true,
+                None,
+                None,
+            )?;
+            store.requests.remove(idx);
+        }
+        "allow" => {
+            grant::add(store, &req.tool, &[], false, None, None)?;
+            store.requests.remove(idx);
+        }
+        "deny" => {
+            store.requests.remove(idx);
+        }
+        _ => return Ok(()),
+    }
+    Ok(())
 }
