@@ -22,4 +22,4 @@ On the server:
 
 If the laptop is closed, that last command waits. If adb is not added, the laptop gets a notification: Allow once / Allow / Deny.
 
-Live proof is in [plans/current.md](plans/current.md).
+Work state is recorded in [plans/current.md](plans/current.md).
