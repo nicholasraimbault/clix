@@ -1,16 +1,26 @@
 # Clix
 
-Run owner-granted tools across your machines, from your normal shell. The owner
-and an agent use the same commands. A **hand** is a granted tool on a named
-machine: `clix laptop adb devices` runs that machine's `adb`.
+Run tools on your other machines without opening a login session.
 
-The owner adds grants on the machine that has the tool. Nothing granted means
-nothing runs through Clix. Pairing does not give the other machine a login.
+Pair your machines, then grant the tools you want each one to make available.
+You can limit a grant to particular paired machines, set an expiry, or allow
+one successful run. Use the same commands yourself, in scripts, or through an
+agent.
 
-**Experimental, Linux today.** The hand has been exercised on a real CachyOS
-(Arch-derived) laptop and Debian 13.6 server, including denial, single-use grants
-and delivery after daemon restarts. That is one demonstrated workflow; Clix is
-not limited to laptops. The full accepted v0 is unfinished. See
+For example, after pairing and granting `adb` on the laptop, run this from the server:
+
+```sh
+clix laptop adb devices
+```
+
+That runs the laptop's `adb` and returns its output to your normal shell.
+The command stays on the machine you named. Clix calls a tool grant a **hand**;
+you add or revoke it on the machine that has the tool. Nothing granted means
+nothing runs through Clix.
+
+**Experimental, Linux today.** Tested on a real CachyOS (Arch-derived) laptop
+and Debian 13.6 server, including denial, single-use grants and delivery after
+daemon restarts. The full v0 design is unfinished. See
 [current proof and remaining work](plans/current.md).
 
 ## Try it

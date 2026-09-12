@@ -1,0 +1,53 @@
+{
+  "revision": "ad285788f23ea9288031c1ea1db154b087eeb7b6",
+  "url": "https://github.com/nicholasraimbault/clix/actions/runs/34675613769",
+  "status": "completed",
+  "conclusion": "success",
+  "test_totals": {
+    "passed": 125,
+    "failed": 0,
+    "ignored": 0
+  },
+  "steps": [
+    {
+      "name": "Set up job",
+      "conclusion": "success"
+    },
+    {
+      "name": "Check out source",
+      "conclusion": "success"
+    },
+    {
+      "name": "Install Rust",
+      "conclusion": "success"
+    },
+    {
+      "name": "Record compiler and revision",
+      "conclusion": "success"
+    },
+    {
+      "name": "Check formatting",
+      "conclusion": "success"
+    },
+    {
+      "name": "Check lint warnings",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run tests",
+      "conclusion": "success"
+    },
+    {
+      "name": "Build release binary",
+      "conclusion": "success"
+    },
+    {
+      "name": "Post Check out source",
+      "conclusion": "success"
+    },
+    {
+      "name": "Complete job",
+      "conclusion": "success"
+    }
+  ]
+}

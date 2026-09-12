@@ -4,8 +4,9 @@ Work proposal, 2026-09-12, with the scope decision below accepted by the owner.
 The implementation steps and acceptance tests are **not results**.
 The [current proof](current.md) and [accepted design](../docs/superpowers/specs/2026-09-11-clix-design.md)
 remain authoritative. Preserve the tested source manifest before the next code
-change. Work remains in the existing checkout on master, without cloning or
-pushing.
+change. Work remains in the existing checkout on master, without cloning.
+The owner later authorized private pushes for publication preparation; public
+visibility remains a separate decision.
 
 The working release scenario is concrete: work on server, use a granted tool on
 laptop, inspect the work from either machine, and continue after the laptop
