@@ -19,6 +19,7 @@ use crate::types::{Job, Peer};
 type HmacSha256 = Hmac<Sha256>;
 
 const OWNER_OPS: &[&str] = &["add", "remove", "allow", "deny", "pair"];
+const MAX_BODY: usize = 32 * 1024 * 1024;
 
 /// Shared handle for pairing and mesh exec.
 #[derive(Clone)]
@@ -135,7 +136,7 @@ pub async fn read_frame(stream: &mut TcpStream) -> Result<Vec<u8>> {
     let mut lenb = [0u8; 4];
     stream.read_exact(&mut lenb).await?;
     let len = u32::from_be_bytes(lenb) as usize;
-    if len > 1_048_576 {
+    if len > MAX_BODY {
         return Err(ClixError::Io("frame too large".into()));
     }
     let mut buf = vec![0u8; len];
@@ -218,11 +219,12 @@ async fn handle_http(
     stream: &mut TcpStream,
 ) -> Result<()> {
     let msg = read_http(stream).await?;
-    let (status, v) = match dispatch_http(&store, handle, &msg) {
+    let (status, v) = match dispatch_http(&store, handle, &msg).await {
         Ok(v) => (200, v),
         Err(e) => {
             let status = match &e {
                 ClixError::Io(s) if s.contains("unknown") => 401,
+                ClixError::PinConflict { .. } => 409,
                 _ => 403,
             };
             (status, json!({"ok": false, "error": e.to_string()}))
@@ -233,7 +235,11 @@ async fn handle_http(
     Ok(())
 }
 
-fn dispatch_http(store: &Arc<Mutex<Store>>, handle: &MeshHandle, msg: &HttpMsg) -> Result<Value> {
+async fn dispatch_http(
+    store: &Arc<Mutex<Store>>,
+    handle: &MeshHandle,
+    msg: &HttpMsg,
+) -> Result<Value> {
     if msg.method() != "POST" {
         return Err(ClixError::Usage("POST only".into()));
     }
@@ -262,10 +268,10 @@ fn dispatch_http(store: &Arc<Mutex<Store>>, handle: &MeshHandle, msg: &HttpMsg) 
         return Err(ClixError::Io("unknown peer".into()));
     }
     let req: Value = serde_json::from_slice(&msg.body)?;
-    handle_mesh_req(store, handle, &peer, req)
+    handle_mesh_req(store, handle, &peer, req).await
 }
 
-fn handle_mesh_req(
+async fn handle_mesh_req(
     store: &Arc<Mutex<Store>>,
     handle: &MeshHandle,
     peer: &Peer,
@@ -279,6 +285,7 @@ fn handle_mesh_req(
     }
     match op {
         "exec" => {
+            pin_before_exec(store, peer).await?;
             let argv = json_string_list(req.get("argv"));
             let job_id = req
                 .get("job_id")
@@ -292,8 +299,23 @@ fn handle_mesh_req(
         "job_poll" => rpc_job_poll(store, handle, peer, &req),
         "job_result" => rpc_job_result(store, handle, peer, &req),
         "request" => rpc_request(store, peer, &req),
+        "pin_list" => crate::pin::rpc_list(),
+        "pin_get" => crate::pin::rpc_get(&req),
+        "pin_put" => crate::pin::rpc_put(&req),
         "" => Err(ClixError::Usage("missing op".into())),
         other => Err(ClixError::Usage(format!("unknown op: {other}"))),
+    }
+}
+
+async fn pin_before_exec(store: &Arc<Mutex<Store>>, peer: &Peer) -> Result<()> {
+    let Some(addr) = peer.addr.clone() else {
+        return Ok(());
+    };
+    let sk = lock_store(store).owner_sk.clone();
+    match crate::pin::sync_with_peer(store, &sk, &addr, &peer.name.0).await {
+        Ok(()) => Ok(()),
+        Err(e) if crate::pin::is_conflict(&e) => Err(e),
+        Err(_) => Ok(()),
     }
 }
 
@@ -356,8 +378,11 @@ fn rpc_job_result(
     Ok(json!({"ok": true}))
 }
 
-/// On sidecar start: tell peers our addr, pull waiting jobs destined here, run them.
+/// On sidecar start: pin ~/src, tell peers our addr, pull waiting jobs destined here, run them.
 pub async fn claim_waiting_jobs(store: Arc<Mutex<Store>>, local_addr: String) {
+    if let Err(e) = crate::pin::sync_with_peers(store.clone()).await {
+        eprintln!("{e}");
+    }
     let (peers, sk, name) = {
         let s = lock_store(&store);
         (s.peers.clone(), s.owner_sk.clone(), s.body_name.clone())
@@ -504,7 +529,7 @@ async fn read_http(stream: &mut TcpStream) -> Result<HttpMsg> {
         .find(|(k, _)| k == "content-length")
         .and_then(|(_, v)| v.parse::<usize>().ok())
         .unwrap_or(0);
-    if content_len > 1_048_576 {
+    if content_len > MAX_BODY {
         return Err(ClixError::Io("frame too large".into()));
     }
     let mut body = rest;

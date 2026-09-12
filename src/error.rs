@@ -25,6 +25,8 @@ pub enum ClixError {
     Expired { tool: String, body: String },
     #[error("{tool} is not added on {body} at this time")]
     NotAddedAtTime { tool: String, body: String },
+    #[error("pin conflict: {path} ({a} and {b} both wrote). Not merging.")]
+    PinConflict { path: String, a: String, b: String },
 }
 
 impl From<std::io::Error> for ClixError {

@@ -129,7 +129,7 @@ async fn handle_rpc(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: Value) ->
         "status" => rpc_status(store, mesh),
         "pair_start" => rpc_pair_start(store, mesh, &req),
         "pair_join" => rpc_pair_join(store, mesh, &req).await,
-        "pair_await" => rpc_pair_await(mesh).await,
+        "pair_await" => rpc_pair_await(store, mesh).await,
         "request" => rpc_request(store, &req).await,
         "pending" => rpc_pending(store),
         "allow" => rpc_allow(store, &req),
@@ -209,6 +209,11 @@ async fn rpc_exec<W: AsyncWriteExt + Unpin>(
         .await?;
         return Ok(());
     };
+    if let Err(e) = crate::pin::sync_with_peer(store, &sk, &addr, body).await {
+        if crate::pin::is_conflict(&e) {
+            return Err(e);
+        }
+    }
     match mesh::call(&addr, &sk, json!({"op": "exec", "argv": argv})).await {
         Ok(resp) => {
             append_origin_job(store, &resp)?;
@@ -367,10 +372,14 @@ async fn rpc_pair_join(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: &Value
     }))
 }
 
-async fn rpc_pair_await(mesh: &MeshHandle) -> Result<Value> {
+async fn rpc_pair_await(store: &Arc<Mutex<Store>>, mesh: &MeshHandle) -> Result<Value> {
     let rx = mesh.take_pair_done()?;
     match rx.await {
-        Ok(Ok(peer)) => Ok(json!({"ok": true, "name": peer.name.0})),
+        Ok(Ok(peer)) => {
+            let sk = lock_store(store).owner_sk.clone();
+            crate::pin::sync_after_pair(store, &sk, &peer).await?;
+            Ok(json!({"ok": true, "name": peer.name.0}))
+        }
         Ok(Err(e)) => Err(e),
         Err(_) => Err(ClixError::Io("pair cancelled".into())),
     }

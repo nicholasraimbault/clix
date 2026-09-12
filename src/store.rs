@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -6,6 +7,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{ClixError, Result};
 use crate::types::{BodyId, Grant, Job, JobStatus, Peer, Request};
+
+/// Last successful pin sync: content hashes plus when that sync finished.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PinIndex {
+    /// Unix milliseconds of last successful pin sync.
+    #[serde(default)]
+    pub last_sync: Option<u64>,
+    /// Relative path → sha256 hex at last successful sync.
+    #[serde(default)]
+    pub hashes: BTreeMap<String, String>,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Store {
@@ -21,6 +33,8 @@ pub struct Store {
     pub jobs: Vec<Job>,
     #[serde(default)]
     pub requests: Vec<Request>,
+    #[serde(default)]
+    pub pin_index: PinIndex,
 }
 
 impl Store {
@@ -45,6 +59,7 @@ impl Store {
                 grants: Vec::new(),
                 jobs: Vec::new(),
                 requests: Vec::new(),
+                pin_index: PinIndex::default(),
             };
             store.save()?;
             Ok(store)

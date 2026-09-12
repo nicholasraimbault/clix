@@ -197,6 +197,7 @@ async fn handshake_listen(
         },
     )?;
     write_identity(&mut stream, &key, &name, &pk, local_addr).await?;
+    pin_after_pair(&store, &peer).await?;
     Ok(peer)
 }
 
@@ -222,7 +223,7 @@ async fn handshake_join(
     let key = spake.finish(&msg_b).map_err(|_| phrase_mismatch())?;
     write_identity(&mut stream, &key, &name, &pk, local_addr).await?;
     let peer_id = read_identity(&mut stream, &key).await?;
-    persist_peer(
+    let peer = persist_peer(
         &store,
         Peer {
             name: BodyId(peer_id.name),
@@ -232,7 +233,18 @@ async fn handshake_join(
                 .filter(|s| !s.is_empty())
                 .or_else(|| Some(dial_addr.to_string())),
         },
-    )
+    )?;
+    pin_after_pair(&store, &peer).await?;
+    Ok(peer)
+}
+
+async fn pin_after_pair(store: &Arc<Mutex<Store>>, peer: &Peer) -> Result<()> {
+    let sk = store
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .owner_sk
+        .clone();
+    crate::pin::sync_after_pair(store, &sk, peer).await
 }
 
 async fn write_identity(

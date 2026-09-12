@@ -38,6 +38,7 @@ impl TestDaemon {
         std::env::set_var("CLIX_NOTIFY", "0");
         std::env::set_var("CLIX_TRAY", "0");
         let home = tempfile::tempdir().unwrap();
+        std::env::set_var("CLIX_PIN", home.path().join("src"));
         let sock = home.path().join("clix.sock");
         let mut store = Store::open(home.path()).unwrap();
         store.body_name = name.to_string();
@@ -76,6 +77,7 @@ impl TestDaemon {
     pub async fn restart(&self) -> Self {
         self.kill().await;
         let dir = self.proc.home.path();
+        std::env::set_var("CLIX_PIN", dir.join("src"));
         let store = Store::open(dir).unwrap();
         let owner_sk = store.owner_sk.clone();
         let store = Arc::new(Mutex::new(store));
