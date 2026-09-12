@@ -1,15 +1,19 @@
 mod cli;
+mod daemon;
 mod error;
 mod exec;
 mod grant;
+mod local;
 mod paths;
 mod store;
 mod types;
 
 pub use cli::{parse_argv, Cmd};
+pub use daemon::{dispatch, serve_local};
 pub use error::ClixError;
 pub use exec::run_granted;
 pub use grant::{add, check, check_at, consume_once, hands, remove, resolve_tool};
+pub use local::client_send;
 pub use paths::{socket_path, state_dir, state_file};
 pub use store::Store;
 pub use types::{BodyId, Grant, Job, JobStatus, OwnerId, Peer, Request, Schedule};

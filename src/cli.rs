@@ -227,6 +227,12 @@ fn validate_ampm(s: &str) -> Result<()> {
     parse_ampm(s).map(|_| ())
 }
 
+pub(crate) fn parse_ampm_naive(s: &str) -> Result<NaiveTime> {
+    let mins = parse_ampm(s)?;
+    NaiveTime::from_hms_opt(mins / 60, mins % 60, 0)
+        .ok_or_else(|| ClixError::Usage(format!("bad time '{s}' (use am/pm, e.g. 5pm)")))
+}
+
 /// Minutes since midnight from `9am` / `5pm`. Hours only; no 24-hour clock.
 fn parse_ampm(s: &str) -> Result<u32> {
     let s = s.trim().to_ascii_lowercase();

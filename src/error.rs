@@ -9,6 +9,8 @@ pub enum ClixError {
     Io(String),
     #[error("{0}")]
     Json(String),
+    #[error("clix daemon is not running")]
+    NoDaemon,
     #[error("no such tool: {tool}")]
     NoSuchTool { tool: String },
     #[error("{tool} is not added on {body}")]
