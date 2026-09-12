@@ -8,9 +8,8 @@ use chrono::Weekday;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as AsyncBufReader};
 
-use crate::cli::{parse_ampm_naive, Cmd};
+use crate::cli::{parse_ampm_naive, Cmd, JobCommand, StorageCommand};
 use crate::error::{ClixError, Result};
-use crate::exec;
 use crate::grant;
 use crate::job;
 use crate::mesh::MeshHandle;
@@ -52,7 +51,10 @@ pub(crate) fn client_send_timeout(
             return Err(ClixError::Io(msg.to_string()));
         }
         if req["op"] == "exec"
-            && v.get("status").and_then(Value::as_str) == Some("waiting")
+            && matches!(
+                v.get("status").and_then(Value::as_str),
+                Some("waiting" | "capacity_wait")
+            )
             && !no_wait
         {
             if let Some(msg) = v.get("waiting").and_then(Value::as_str) {
@@ -84,8 +86,8 @@ pub(crate) async fn handle_connection(
         return;
     }
     let (reader, mut writer) = stream.into_split();
-    let mut lines = AsyncBufReader::new(reader).lines();
-    while let Ok(Some(line)) = lines.next_line().await {
+    let mut reader = AsyncBufReader::new(reader);
+    while let Ok(Some(line)) = crate::limits::owner_line(&mut reader).await {
         if line.is_empty() {
             continue;
         }
@@ -102,8 +104,26 @@ pub(crate) async fn handle_connection(
             }
         };
         let op = req.get("op").and_then(Value::as_str);
+        if op == Some("pin_recovery_export") {
+            let result = tokio::select! {
+                result = crate::pin_owner::export(&store, &req, &mut writer) => result,
+                _ = reader.fill_buf() => break,
+            };
+            if let Err(error) = result {
+                let _ =
+                    write_json(&mut writer, &json!({"ok":false,"error":error.to_string()})).await;
+            }
+            break;
+        }
         if op == Some("exec") {
-            if let Err(e) = rpc_exec(&store, &mesh, &req, &mut writer).await {
+            // The CLI permits one outstanding command per connection. EOF,
+            // a socket error, or pipelining another command releases the waiter;
+            // the accepted durable job continues independently.
+            let result = tokio::select! {
+                result = rpc_exec(&store, &mesh, &req, &mut writer) => result,
+                _ = reader.fill_buf() => break,
+            };
+            if let Err(e) = result {
                 let err = json!({"ok": false, "error": e.to_string()});
                 if write_json(&mut writer, &err).await.is_err() {
                     break;
@@ -121,12 +141,24 @@ pub(crate) async fn handle_connection(
     }
 }
 
-async fn write_json<W: AsyncWriteExt + Unpin>(writer: &mut W, v: &Value) -> std::io::Result<()> {
+pub(crate) async fn write_json<W: AsyncWriteExt + Unpin>(
+    writer: &mut W,
+    v: &Value,
+) -> std::io::Result<()> {
     let mut s = serde_json::to_vec(v)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     s.push(b'\n');
-    writer.write_all(&s).await?;
-    writer.flush().await
+    tokio::time::timeout(crate::limits::IO_TIMEOUT, async {
+        writer.write_all(&s).await?;
+        writer.flush().await
+    })
+    .await
+    .map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "owner response deadline exceeded",
+        )
+    })?
 }
 
 async fn handle_rpc(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: Value) -> Result<Value> {
@@ -139,6 +171,30 @@ async fn handle_rpc(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: Value) ->
         "hands" => rpc_hands(store),
         "remove" => rpc_remove(store, &req),
         "log" => rpc_log(store),
+        "job_inspect" => rpc_job_inspect(store, &req),
+        "job_output" => rpc_job_output(store, &req),
+        "job_retry" => rpc_job_retry(store, mesh, &req),
+        "storage_status" => Ok(crate::storage::status(&lock_store(store))),
+        "pin_recovery_list"
+        | "pin_recovery_inspect"
+        | "pin_recovery_resolve"
+        | "pin_recovery_discard"
+        | "pin_conflicts"
+        | "pin_take_peer"
+        | "pin_sync" => crate::pin_owner::rpc(store, req).await,
+        "storage_prune" => {
+            let keep = req
+                .get("keep_output_jobs")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| ClixError::Usage("missing output retention count".into()))?;
+            let keep = usize::try_from(keep)
+                .map_err(|_| ClixError::Usage("retention count is too large".into()))?;
+            let mut s = lock_store(store);
+            let removed = s.update(|s| crate::storage::prune(s, keep))?;
+            Ok(
+                json!({"ok":true,"output_bytes_removed":removed,"storage":crate::storage::status(&s)}),
+            )
+        }
         "status" => rpc_status(store, mesh),
         "pair_start" => rpc_pair_start(store, mesh, &req),
         "pair_join" => rpc_pair_join(store, mesh, &req).await,
@@ -246,13 +302,14 @@ async fn rpc_exec<W: AsyncWriteExt + Unpin>(
         return Err(ClixError::Usage("usage: clix <body> <cmd>…".into()));
     }
     let no_wait = req.get("no_wait").and_then(Value::as_bool).unwrap_or(false);
-    let this = lock_store(store).body_name.clone();
-    let id = if body == this {
-        let id = job::new_id()?;
-        exec::submit(store, &BodyId(this), &argv, id.clone())?;
-        id
+    let _waiter = if no_wait {
+        None
     } else {
-        if !lock_store(store).peers.iter().any(|p| p.name.0 == body) {
+        Some(mesh.limits.waiter()?)
+    };
+    let this = lock_store(store).body_name.clone();
+    let id = {
+        if body != this && !lock_store(store).peers.iter().any(|p| p.name.0 == body) {
             return Err(ClixError::Usage(format!("{body} is not a paired body")));
         }
         job::append(
@@ -275,11 +332,18 @@ async fn rpc_exec<W: AsyncWriteExt + Unpin>(
             .cloned()
             .ok_or_else(|| ClixError::Protocol("accepted job disappeared".into()))?;
         if job::is_terminal(&j.status) || (no_wait && !matches!(j.status, JobStatus::Queued)) {
+            if lock_store(store).output_pruned.contains(&j.id) {
+                return Err(ClixError::Usage(format!("job {} completed but its saved output is no longer retained; use clix job inspect {}",j.id,j.id)));
+            }
             write_json(writer, &job::exec_json(&j)).await?;
             return Ok(());
         }
-        if matches!(j.status, JobStatus::WaitingBody) && !waiting_reported {
-            write_json(writer, &job::waiting_json(body, &j)).await?;
+        if matches!(
+            j.status,
+            JobStatus::WaitingBody | JobStatus::WaitingCapacity
+        ) && !waiting_reported
+        {
+            write_json(writer, &job::exec_json(&j)).await?;
             waiting_reported = true;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
@@ -293,6 +357,7 @@ async fn rpc_request(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: &Value) 
         .filter(|s| !s.is_empty())
         .ok_or_else(|| ClixError::Usage("usage: clix request <body> <tool>".into()))?;
     let body = req.get("body").and_then(Value::as_str).unwrap_or("");
+    crate::limits::tool(tool)?;
     let (this, dest) = {
         let store = lock_store(store);
         let dest = store.peers.iter().find(|p| p.name.0 == body).cloned();
@@ -387,8 +452,115 @@ fn rpc_deny(store: &Arc<Mutex<Store>>, req: &Value) -> Result<Value> {
 
 fn rpc_log(store: &Arc<Mutex<Store>>) -> Result<Value> {
     let store = lock_store(store);
-    let lines: Vec<String> = store.jobs.iter().map(job::format_line).collect();
-    Ok(json!({"jobs": store.jobs, "lines": lines}))
+    let views = crate::history::views(&store);
+    let jobs: Vec<_> = views.iter().map(|v| &v.job).collect();
+    let lines: Vec<String> = views
+        .iter()
+        .map(|v| {
+            let mut line = job::format_line(&v.job);
+            if v.provenance.starts_with("legacy") || v.invocation.is_none() {
+                line.push_str(&format!("  [{}]", v.provenance));
+            }
+            if !v.output_available {
+                line.push_str("  [output no longer retained]");
+            }
+            if v.local_warning.is_some() {
+                line.push_str("  [local uncertainty has not been saved]");
+            }
+            line
+        })
+        .collect();
+    Ok(
+        json!({"jobs":jobs,"views":views,"lines":lines,"history":crate::history::diagnostics(&store)}),
+    )
+}
+
+fn job_id(req: &Value) -> Result<&str> {
+    let id = req
+        .get("job_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ClixError::Usage("provide a job ID from clix log".into()))?;
+    crate::limits::identifier(id)?;
+    Ok(id)
+}
+
+fn inspected(store: &Store, id: &str) -> Result<crate::history::View> {
+    let mut matches = crate::history::views_for_job(store, id).into_iter();
+    let view = matches
+        .next()
+        .ok_or_else(|| ClixError::Usage("job is not in this machine's saved history".into()))?;
+    if matches.next().is_some() {
+        return Err(ClixError::Usage(
+            "job ID has conflicting invocations; inspect the history evidence before acting".into(),
+        ));
+    }
+    Ok(view)
+}
+
+fn job_explanation(status: &JobStatus) -> &'static str {
+    match status {
+        JobStatus::Queued=>"Saved locally and awaiting delivery or execution.",
+        JobStatus::WaitingBody=>"The named machine is unreachable. This saved ID will be retried when it returns.",
+        JobStatus::WaitingCapacity=>"Execution capacity is full. This saved ID will be retried and the grant checked again before execution.",
+        JobStatus::Running=>"The runner accepted this job; a terminal outcome has not been recorded here.",
+        JobStatus::Done{..}=>"The runner recorded the exit status. Saved output may be retrieved while retained.",
+        JobStatus::Denied{..}=>"The tool was not admitted under the runner's current grant. Permission must be granted on that machine.",
+        JobStatus::Failed{..}=>"Inspect the recorded reason and provenance. A delivery failure does not prove that a remote process had no effects.",
+        JobStatus::Uncertain{..}=>"The command may have taken effect. Clix will not rerun it automatically. Inspect its effects before a new attempt; any single-use reservation remains in place.",
+    }
+}
+
+fn rpc_job_inspect(store: &Arc<Mutex<Store>>, req: &Value) -> Result<Value> {
+    let s = lock_store(store);
+    let view = inspected(&s, job_id(req)?)?;
+    Ok(
+        json!({"explanation":job_explanation(&view.job.status),"view":view,"history":crate::history::diagnostics(&s),"storage":crate::storage::status(&s)}),
+    )
+}
+
+fn rpc_job_output(store: &Arc<Mutex<Store>>, req: &Value) -> Result<Value> {
+    let s = lock_store(store);
+    let view = inspected(&s, job_id(req)?)?;
+    if !job::is_terminal(&view.job.status) {
+        return Err(ClixError::Usage(
+            "this job has no saved terminal output yet; inspect its status first".into(),
+        ));
+    }
+    if !view.output_available {
+        return Err(ClixError::Usage("this job's output is no longer retained; its outcome and output digests remain in history".into()));
+    }
+    let stderr = req.get("stderr").and_then(Value::as_bool).unwrap_or(false);
+    Ok(json!({"bytes":if stderr{view.job.stderr}else{view.job.stdout}}))
+}
+
+fn rpc_job_retry(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: &Value) -> Result<Value> {
+    let id = job_id(req)?;
+    let old = {
+        let s = lock_store(store);
+        let old = s
+            .jobs
+            .iter()
+            .find(|j| j.id == id && j.from.0 == s.body_name)
+            .cloned()
+            .ok_or_else(|| ClixError::Usage("retry this job on its originating machine".into()))?;
+        if !job::is_terminal(&old.status) {
+            return Err(ClixError::Usage(
+                "the original job is still pending or running; a retry would be another execution"
+                    .into(),
+            ));
+        }
+        old
+    };
+    let new = job::append_retry(
+        store,
+        old.from,
+        old.body,
+        old.argv,
+        JobStatus::Queued,
+        Some(old.id),
+    )?;
+    mesh.wake();
+    Ok(json!({"ok":true,"job_id":new.id}))
 }
 
 fn rpc_status(store: &Arc<Mutex<Store>>, mesh: &MeshHandle) -> Result<Value> {
@@ -398,6 +570,8 @@ fn rpc_status(store: &Arc<Mutex<Store>>, mesh: &MeshHandle) -> Result<Value> {
         "peers": store.peers,
         "mesh_addr": mesh.addr(),
         "outbound_requests": store.outbound_requests,
+        "history":crate::history::diagnostics(&store),
+        "storage":crate::storage::status(&store),
     }))
 }
 
@@ -633,6 +807,20 @@ pub(crate) fn rpc_from_cmd(cmd: &Cmd) -> Result<Value> {
             Some(phrase) => Ok(json!({"op": "pair_join", "phrase": phrase, "name": name})),
         },
         Cmd::Log => Ok(json!({"op": "log"})),
+        Cmd::Job(action) => Ok(match action {
+            JobCommand::Inspect { job_id } => json!({"op":"job_inspect","job_id":job_id}),
+            JobCommand::Output { job_id, stderr } => {
+                json!({"op":"job_output","job_id":job_id,"stderr":stderr})
+            }
+            JobCommand::Retry { job_id } => json!({"op":"job_retry","job_id":job_id}),
+        }),
+        Cmd::Storage(action) => Ok(match action {
+            StorageCommand::Status => json!({"op":"storage_status"}),
+            StorageCommand::Prune { keep_output_jobs } => {
+                json!({"op":"storage_prune","keep_output_jobs":keep_output_jobs})
+            }
+        }),
+        Cmd::Pin(action) => Ok(crate::pin_owner::request(action)),
         Cmd::Pending => Ok(json!({"op": "pending"})),
         Cmd::Allow {
             request_id,
@@ -689,8 +877,59 @@ pub(crate) fn emit_rpc(cmd: &Cmd, v: &Value) -> Result<()> {
                     }
                 }
             }
+            emit_history_status(v.get("history").unwrap_or(&Value::Null));
             Ok(())
         }
+        Cmd::Job(JobCommand::Output { .. }) => {
+            let bytes: Vec<u8> = serde_json::from_value(v["bytes"].clone())?;
+            std::io::stdout().lock().write_all(&bytes)?;
+            Ok(())
+        }
+        Cmd::Job(JobCommand::Retry { .. }) => {
+            println!("{}", v["job_id"].as_str().unwrap_or("?"));
+            Ok(())
+        }
+        Cmd::Job(JobCommand::Inspect { .. }) => {
+            let view: crate::history::View = serde_json::from_value(v["view"].clone())?;
+            println!("{}", job::format_line(&view.job));
+            println!("{}", view.provenance);
+            for observation in &view.observations {
+                println!(
+                    "observed by {:?}: {}{}",
+                    observation.role,
+                    serde_json::to_string(&observation.status)?,
+                    observation
+                        .legacy_observer
+                        .as_ref()
+                        .map(|body| format!(" (legacy observer {body})"))
+                        .unwrap_or_default()
+                );
+            }
+            if let Some(warning) = view.local_warning {
+                eprintln!("{warning}");
+            }
+            if let Some(old) = view.retry_of {
+                println!("new attempt after {old}");
+            }
+            println!("{}", v["explanation"].as_str().unwrap_or(""));
+            println!(
+                "saved output: {} (stdout {} bytes, stderr {} bytes)",
+                if view.output_available {
+                    "available"
+                } else {
+                    "not retained"
+                },
+                view.stdout.bytes,
+                view.stderr.bytes
+            );
+            emit_history_status(&v["history"]);
+            Ok(())
+        }
+        Cmd::Storage(_) => {
+            println!("{}", serde_json::to_string_pretty(v)?);
+            Ok(())
+        }
+        Cmd::Pin(_) => crate::pin_owner::emit(v),
         Cmd::Pending => {
             if let Some(arr) = v.get("requests").and_then(Value::as_array) {
                 for r in arr {
@@ -704,7 +943,7 @@ pub(crate) fn emit_rpc(cmd: &Cmd, v: &Value) -> Result<()> {
         }
         Cmd::Exec { no_wait, .. } => {
             let status = v.get("status").and_then(Value::as_str);
-            if status == Some("waiting") {
+            if matches!(status, Some("waiting" | "capacity_wait")) {
                 if let Some(msg) = v.get("waiting").and_then(Value::as_str) {
                     eprintln!("{msg}");
                 }
@@ -748,6 +987,10 @@ pub(crate) fn emit_rpc(cmd: &Cmd, v: &Value) -> Result<()> {
             if let Some(body) = v.get("body").and_then(Value::as_str) {
                 println!("{body}");
             }
+            emit_history_status(&v["history"]);
+            if let Some(error) = v["storage"]["storage_error"].as_str() {
+                eprintln!("storage unavailable: {error}. Repair storage and restart the sidecar; mutations are disabled.");
+            }
             let addr = v["mesh_addr"].as_str().filter(|s| !s.is_empty());
             println!("mesh: {}", addr.unwrap_or("offline"));
             if let Some(peers) = v["peers"].as_array() {
@@ -785,6 +1028,26 @@ pub(crate) fn emit_rpc(cmd: &Cmd, v: &Value) -> Result<()> {
             Ok(())
         }
         _ => Ok(()),
+    }
+}
+
+fn emit_history_status(history: &Value) {
+    if let Some(peers) = history["peers"].as_array() {
+        for peer in peers {
+            if peer["complete"] != true {
+                eprintln!(
+                    "history from {} is incomplete: {}",
+                    peer["body"].as_str().unwrap_or("?"),
+                    peer["error"]
+                        .as_str()
+                        .unwrap_or(if peer["unknown_authors"] == true {
+                            "pair the history authors explicitly to verify their records"
+                        } else {
+                            "synchronization is pending"
+                        })
+                );
+            }
+        }
     }
 }
 

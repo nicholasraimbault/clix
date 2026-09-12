@@ -27,6 +27,11 @@ reported 1.96.1 in the same preparation pass. No minimum supported Rust version
 has been established.
 Tests use temporary state and local sockets; they do not require pairing your
 real machines or granting tools on them.
+The suite needs a C compiler, `rustc`, `unshare`, `mount`, and permission to
+create unprivileged user, mount and PID namespaces. Disk-exhaustion tests fill
+only an 8 MiB private tmpfs. Pin crash tests build a fixture driver and interrupt
+it after real fsync calls. Missing prerequisites fail the checks; they do not
+silently skip the failure boundary or substitute another I/O error.
 
 For authority, retry, storage or pin changes, add a regression test that exercises
 the failure boundary. Loopback tests are useful, but they do not establish

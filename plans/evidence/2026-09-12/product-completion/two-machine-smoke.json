@@ -1,0 +1,27 @@
+{
+  "started_at": "2026-09-12T08:13:14.559813+00:00",
+  "finished_at": "2026-09-12T08:13:18.208522+00:00",
+  "command": "clix laptop adb devices (actual paired body name used; laptop is a public pseudonym)",
+  "invocation": "SSH invoked only the server CLI; Clix authenticated mesh transported the laptop tool execution.",
+  "exit_code": 0,
+  "job_id": "33b447f7-8c34-4042-8cb3-824a26561f23",
+  "signed_invocation_present": true,
+  "runner_proof_verified": true,
+  "stdout_sha256": "36f15c2fe32964a6fbe902e914a47739d4e6304b0d3e812bf08096ff0419b7ae",
+  "caller_runner_job_equal": true,
+  "job_status": {
+    "Done": {
+      "exit": 0
+    }
+  },
+  "attached_device_count": 0,
+  "stdout_bytes": 26,
+  "stderr_bytes": 0,
+  "output_redaction": "Device identifiers and raw output retained privately; only byte counts and attached-device count published.",
+  "laptop_identity_peers_grants_preserved": true,
+  "server_grant_count": 0,
+  "server_identity_peers_grants_preserved": true,
+  "new_grants_added": false,
+  "passed": true,
+  "scope": "Real server/laptop smoke after upgrade using the existing laptop adb grant. No new denial, once-grant consumption, suspend or desktop proof is claimed."
+}

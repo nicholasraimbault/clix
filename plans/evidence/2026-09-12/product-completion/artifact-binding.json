@@ -1,0 +1,13 @@
+{
+  "tested_release_source_manifest_sha256": "ef087852b243bd8c1c924f326ac75bff6f1431323bd5f40beb9bb4e30235d197",
+  "final_test_source_manifest_sha256": "7ae93134d6001a0f57a6b2acbdabe302b55106f37c85a2fe5a95a2e2ee5f6e21",
+  "production_dependency_files_compared": 29,
+  "production_dependency_files_changed": [],
+  "added_files": [
+    "tests/legacy_delivery.rs"
+  ],
+  "changed_existing_files": [],
+  "laptop_release_rebuilt_from_final_candidate_matches_fixture_binary": true,
+  "scope": "The final candidate adds three upgrade regression tests, with no production/dependency source change. Runtime and performance records identify their exact release binaries separately from the later full-suite count.",
+  "server_release_from_final_candidate_matches_fixture_binary": true
+}

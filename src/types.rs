@@ -91,6 +91,7 @@ pub struct Job {
 pub enum JobStatus {
     Queued,
     WaitingBody,
+    WaitingCapacity,
     Running,
     Done { exit: i32 },
     Denied { reason: String },

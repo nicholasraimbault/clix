@@ -1,0 +1,75 @@
+{
+  "body": "server",
+  "distribution": "Debian GNU/Linux 13.6",
+  "native": true,
+  "source": {
+    "archive_sha256": "ba9388d53103ad5d06d5cab80f50be7f4e50d35154c2388ae13c15757221365c",
+    "manifest_sha256": "7ae93134d6001a0f57a6b2acbdabe302b55106f37c85a2fe5a95a2e2ee5f6e21",
+    "files": 104,
+    "all_previous_103_files_unchanged": true,
+    "all_29_production_and_cargo_files_unchanged": true,
+    "added_file": "tests/legacy_delivery.rs",
+    "added_file_sha256": "af79920a3886e262d9526c2267e0404f4056168dcee3b3747ac6101e831d34d7",
+    "source_comparison_sha256": "c1b06f7b791f269fe37184438ee9f6059a795550ff3034617ae7b882ebb0e93e",
+    "all_104_files_verified_before_and_after": true
+  },
+  "toolchain": {
+    "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
+    "cargo": "cargo 1.96.1 (356927216 2026-06-26)"
+  },
+  "commands": [
+    {
+      "command": "CARGO_BUILD_JOBS=2 cargo test --locked --target-dir \"$DEPENDENCY_TARGET\"",
+      "exit": 0,
+      "elapsed_seconds": 56.507402181625366,
+      "counts": {
+        "passed": 196,
+        "failed": 0,
+        "ignored": 0
+      },
+      "log_sha256": "16bceca9f2fcda16f7fd401ec35c2465a746a729bb539aa727c1a17b9cfbc5fe"
+    },
+    {
+      "command": "CARGO_BUILD_JOBS=2 cargo build --release --locked --target-dir \"$DEPENDENCY_TARGET\"",
+      "exit": 0,
+      "elapsed_seconds": 0.3480665683746338,
+      "log_sha256": "db7ce6990dfe9b50a2a6b1ec274713550a0035eba0cc61275e05974c0d3a5a79"
+    }
+  ],
+  "legacy_regressions": {
+    "test_names": [
+      "upgraded_legacy_waiting_job_resumes_with_original_id_and_once_grant",
+      "upgraded_legacy_queued_job_resumes_with_original_id_and_once_grant",
+      "upgraded_legacy_running_job_recovers_existing_result_without_rerunning"
+    ],
+    "coverage": "Native tests reconstruct the pre-history persisted shape for queued, waiting and running admissions. Pair identities, runner grant and completion receipt originate in test-daemon operations. They check original-ID continuation, preserved identity, one effect, consumed successful once grant, and duplicate result retrieval without reexecution.",
+    "boundary": "These are disposable localhost test-daemon/state regressions, not execution of an old binary upgrade on production machines."
+  },
+  "release": {
+    "sha256": "4bc43d0e1697c2e573c7e5c0eece727b4034c5ec8160ca7a0ded7efdc197fc50",
+    "identical_to_previously_freshly_built_193_candidate": true,
+    "build_behavior": "The release command reused the verified native binary. All 29 production/Cargo inputs are byte-identical and the release SHA256 matches the preceding clean release build exactly.",
+    "new_test_build_safety": "The 193 source and native binary were preserved separately. Only the added test was written with a current observed mtime into the established build directory; all 104 source hashes were verified.",
+    "previous_clean_build_log_sha256": "48c04017227d68e84ae915cc5b926e259abb0b2f82f0c2bd7682c577e50ecdc7"
+  },
+  "existing_actual_two_machine_evidence": {
+    "repeated": false,
+    "reason": "Production inputs and native release binary are unchanged.",
+    "summary_sha256": "fee65a8eab22db5a0ea4bc909aebf06b1376371f32471b228cef059d3846548c",
+    "previous_runtime_source_manifest_sha256": "ef087852b243bd8c1c924f326ac75bff6f1431323bd5f40beb9bb4e30235d197",
+    "cases_passed": 5,
+    "independently_verified_ed25519_signatures": 8
+  },
+  "server_postflight": {
+    "production_service_and_pid_unchanged": true,
+    "production_running_binary_unchanged": true,
+    "entire_production_state_hash_unchanged": true,
+    "completed_before_root_deployment": true
+  },
+  "limits": [
+    "No deployment was performed by the validation worker; root owns the service upgrade and standing-hand smoke test.",
+    "Physical suspend/resume, native desktop UX, sustained operational use and power-loss durability remain separate proof requirements.",
+    "Raw exact build paths and commands remain private; DEPENDENCY_TARGET denotes the recorded reused native target directory."
+  ],
+  "preservation": "The 190-test and 193-test artifacts and their results remain preserved, including the rejected cached-release attempt and explicit release-profile cleanup."
+}

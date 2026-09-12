@@ -1,0 +1,35 @@
+{
+  "started_at": "2026-09-12T08:11:10.862499+00:00",
+  "old_binary_sha256": "9200bf4d895ea5539aafcd9bc1b6f9047f4403da05453357695321ed4ad9a7a6",
+  "new_binary_sha256": "1f234ab9e5b8e6c03146b3084ceec7c36170d5d3ca542192e4b586e7522d036d",
+  "checks": {
+    "active_running": true,
+    "enabled_preserved": true,
+    "installed_hash_matches": true,
+    "running_hash_matches": true,
+    "unit_unchanged": true,
+    "preexisting_fields_preserved": true,
+    "history_migrated": true,
+    "owner_status_body_matches": true,
+    "storage_writable": true,
+    "body_name_unchanged": true,
+    "owner_sk_unchanged": true,
+    "peers_unchanged": true,
+    "grants_unchanged": true,
+    "jobs_unchanged": true,
+    "requests_unchanged": true,
+    "outbound_requests_unchanged": true,
+    "request_receipts_unchanged": true,
+    "pin_index_unchanged": true
+  },
+  "commands": [
+    "systemctl --user stop clix.service",
+    "atomic binary replacement at existing ExecStart path",
+    "systemctl --user start clix.service"
+  ],
+  "grant_count": 1,
+  "active_jobs_before_upgrade": 0,
+  "pending_requests_before_upgrade": 0,
+  "passed": true,
+  "finished_at": "2026-09-12T08:11:11.010987+00:00"
+}

@@ -1,0 +1,64 @@
+{
+  "source_manifest_sha256": "7ae93134d6001a0f57a6b2acbdabe302b55106f37c85a2fe5a95a2e2ee5f6e21",
+  "source_archive_sha256": "ba9388d53103ad5d06d5cab80f50be7f4e50d35154c2388ae13c15757221365c",
+  "native": true,
+  "commands": [
+    {
+      "argv": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit": 0,
+      "seconds": 0.15768377803033218,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "argv": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 1.256184856989421,
+      "log_sha256": "e3ada7e636413c456d9e118ee61427b6faa25228dd9bc835a8d7e91c95e86c7e"
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "--locked"
+      ],
+      "exit": 0,
+      "seconds": 20.421585461008362,
+      "log_sha256": "408e0e2d0d1a053854be64c1fa3daedecbac86b9e83c8bbd0c9c852024a92a05"
+    },
+    {
+      "argv": [
+        "cargo",
+        "build",
+        "--release",
+        "--locked"
+      ],
+      "exit": 0,
+      "seconds": 7.584547626029234,
+      "log_sha256": "9fe0a2b33090b91b52687ab2fc92320e8e46c56f09475dcac5ee7fb7dd63af98"
+    }
+  ],
+  "test_totals": {
+    "passed": 196,
+    "failed": 0,
+    "ignored": 0
+  },
+  "rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)",
+  "cargo": "cargo 1.96.0 (30a34c682 2026-05-25)",
+  "release_binary_sha256": "1f234ab9e5b8e6c03146b3084ceec7c36170d5d3ca542192e4b586e7522d036d",
+  "source_unchanged_after_validation": true,
+  "production_sources_equal_candidate193": true
+}

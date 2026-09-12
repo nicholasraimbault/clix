@@ -1,0 +1,77 @@
+{
+  "same_harness_sha256": "6e83adabb2945eca8c933a7b62d8066705ed5344748fdccdabb87c4106ca0d72",
+  "baseline": {
+    "binary_sha256": "5e047ecd6f593a00eb5161aa410740e9852ba7ffa999673ed9c8dd92be79a4a6",
+    "max_hands_seconds": 0.015878848964348435,
+    "probe_errors": [],
+    "max_sampled_rss_bytes": 57708544,
+    "max_reported_lifetime_peak_rss_bytes": 174518272,
+    "export_seconds": [
+      0.8016731729730964,
+      0.7873174590058625,
+      0.8068398080067709
+    ],
+    "admission": {
+      "exit_code": 1,
+      "new_file_published": false,
+      "sparse_fixture": true,
+      "sparse_logical_bytes": 268435457,
+      "sparse_allocated_bytes": 0,
+      "actual_enospc": false
+    }
+  },
+  "nodelay": {
+    "binary_sha256": "19aaaf8f67e134d3ebbd91aac8a17cf8dde155a585c87660d1943cddb763d28e",
+    "max_hands_seconds": 0.00890872796298936,
+    "probe_errors": [],
+    "max_sampled_rss_bytes": 57077760,
+    "max_reported_lifetime_peak_rss_bytes": 173453312,
+    "export_seconds": [
+      0.7895993640413508,
+      0.7965524450410157,
+      0.7992920789984055
+    ],
+    "admission": {
+      "exit_code": 1,
+      "new_file_published": false,
+      "sparse_fixture": true,
+      "sparse_logical_bytes": 268435457,
+      "sparse_allocated_bytes": 0,
+      "actual_enospc": false
+    }
+  },
+  "copy_batches": [
+    {
+      "resulting_files": 128,
+      "baseline_seconds": 5.5470582689740695,
+      "nodelay_seconds": 0.18626479402882978,
+      "speedup": 29.780497693597987
+    },
+    {
+      "resulting_files": 512,
+      "baseline_seconds": 16.396447026985697,
+      "nodelay_seconds": 0.554031720967032,
+      "speedup": 29.59478023815423
+    },
+    {
+      "resulting_files": 2048,
+      "baseline_seconds": 65.39622981398134,
+      "nodelay_seconds": 2.3142787500401028,
+      "speedup": 28.2577152008366
+    }
+  ],
+  "source_patch": "nodelay.patch",
+  "only_source_difference": "src/mesh.rs",
+  "git_dir_scope": "read-only HEAD metadata lookup for copied source; no Clix authority/configuration change",
+  "timeouts": {
+    "product_timeouts_changed": false,
+    "full_2048_baseline_sync_seconds": 65.39622981398134,
+    "product_io_seconds": 10,
+    "timeout_failures": 0,
+    "interpretation": "Ten-second bounds cover individual mesh exchanges and owner I/O writes, not the whole multi-file owner sync; the baseline therefore completed after 65s without a timeout."
+  },
+  "conclusion": "The measured tiny-file copy delay is removed by enabling TCP_NODELAY at actual outbound and accepted TCP boundaries. Adopt shared configure_tcp setting; no batching/protocol rewrite justified.",
+  "limits": "Warm-cache local loopback fixtures on this laptop; not Tailscale/WAN or cold-disk throughput, physical ENOSPC, long-term or maximum-size tree proof. RSS includes whole-daemon lifetime peaks; hands probes sample every50ms and do not prove a hard latency ceiling.",
+  "raw_comparison_sha256": "5f8dbceb267a2cfe5843ddf96e8aa6c68112c84999e599f7c1ff2b2655d77fba",
+  "redaction": "Removed private source-directory path; raw record retained outside repository."
+}

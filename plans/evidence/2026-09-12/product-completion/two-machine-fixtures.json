@@ -1,0 +1,150 @@
+{
+  "candidate": "Frozen 193-test candidate",
+  "source_manifest_sha256": "ef087852b243bd8c1c924f326ac75bff6f1431323bd5f40beb9bb4e30235d197",
+  "actual_machine_pair": [
+    "laptop",
+    "server"
+  ],
+  "scope": "Separate temporary states, pins, Unix sockets, identities and fixed fixture grants on the actual laptop and Debian server. SSH controls the server-side test worker/CLI; laptop tools execute only through Clix TLS and laptop fixture grants.",
+  "fixture_binary_sha256": {
+    "laptop": "1f234ab9e5b8e6c03146b3084ceec7c36170d5d3ca542192e4b586e7522d036d",
+    "server": "4bc43d0e1697c2e573c7e5c0eece727b4034c5ec8160ca7a0ded7efdc197fc50"
+  },
+  "actual_interface_checks": {
+    "both_listeners_bound_to_addresses_present_on_their_actual_tailscale0_interface": true,
+    "tailscale_ip_command_and_interface_address_agree": true,
+    "addresses_distinct": true,
+    "no_loopback_fallback": true
+  },
+  "cases": [
+    {
+      "case": "actual_two_machine_pairing",
+      "passed": true,
+      "detail": {
+        "distinct_actual_tailscale_bindings": true,
+        "initial_fixture_grants": 0,
+        "transport": "Clix mutually authenticated TLS over actual Tailscale interfaces"
+      }
+    },
+    {
+      "case": "local_only_job_replicates_to_actual_peer",
+      "passed": true,
+      "detail": {
+        "output_sha256": "25656b791dafed5e8ee7bf6b90ddcc45f057a71f74aec49f3ead7a23e5a4c5a4",
+        "replica_survives_server_restart": true,
+        "imported_retry_denied_without_admission": true,
+        "location_and_signed_runner_provenance_preserved": true,
+        "independently_verified_ed25519_signatures": {
+          "invocation": 1,
+          "origin": 1,
+          "runner": 1
+        },
+        "invocation_sha256": "35c4195728c6fd157a5e64dc900eb750543de90aa7c424dc4cde7f5e62cd5079"
+      }
+    },
+    {
+      "case": "origin_pin_conflict_replicates_without_runner_admission",
+      "passed": true,
+      "detail": {
+        "runner_executions": 0,
+        "runner_admission_and_authority_unchanged": true,
+        "both_edits_preserved": true,
+        "origin_failure_replicated_with_honest_provenance": true,
+        "independently_verified_ed25519_signatures": {
+          "invocation": 1,
+          "origin": 1,
+          "runner": 0
+        },
+        "invocation_sha256": "3ca4df5120a0fbc89f837174dec375153d17c4c71d7b32bbeacbd62f0fc877d7"
+      }
+    },
+    {
+      "case": "owner_pin_conflict_and_recovery_commands",
+      "passed": true,
+      "detail": {
+        "stale_peer_choice_rejected": true,
+        "fresh_peer_bytes_adopted": true,
+        "displaced_local_bytes_exported": true,
+        "stale_recovery_rejected": true,
+        "reviewed_restore_and_discard_preserve_live_bytes": true,
+        "resolved_pins_converged_across_actual_machines": true,
+        "tool_executions_during_pin_resolution": 0
+      }
+    },
+    {
+      "case": "actual_remote_once_reservation_and_crash_recovery",
+      "passed": true,
+      "detail": {
+        "ungranted_fixture_denied": true,
+        "actual_laptop_effects": 1,
+        "concurrent_once_attempt_denied": true,
+        "uncertainty_reaches_origin_after_runner_restart": true,
+        "explicit_retry_has_new_id_and_preserves_old_reservation": true,
+        "independently_verified_ed25519_signatures": {
+          "invocation": 1,
+          "origin": 1,
+          "runner": 1
+        },
+        "invocation_sha256": "b33b4f8a1d5ffb26be1389bc6ae535bf605b18f7a78b0a28f1aad62bd13b73c2"
+      }
+    }
+  ],
+  "independent_signature_checks": {
+    "records": 3,
+    "signatures": 8,
+    "keys": "Public keys from each actual counterpart stored by the disposable PAKE pairing.",
+    "verification": "Ed25519 using Python cryptography over the Clix history v1 domain and exact compact JSON invocation/fact values.",
+    "output_binding": "Verified signed runner output digest against the actual server CLI output bytes.",
+    "python_version": "3.14.7",
+    "cryptography_version": "50.0.1",
+    "report_sha256": "a9fb2c3359deae531f0b9e65f3c5701726f23e4ea4d16cc4a15890eecf66fd6f"
+  },
+  "cleanup": {
+    "server": {
+      "production_unchanged": true,
+      "all_fixture_process_groups_stopped": true,
+      "fixture_directory_removed": true
+    },
+    "laptop": {
+      "production_unchanged": true,
+      "all_fixture_process_groups_stopped": true,
+      "fixture_directory_removed": true
+    }
+  },
+  "production_comparison": "Each worker independently compared service state and PID, running executable SHA256, entire state-file SHA256 and state counts before fixture startup and after fixture shutdown. All matched.",
+  "complete_for_this_candidate": true,
+  "commands": {
+    "controller": "python3 run.py --config final-config.private.json --evidence \"$EVIDENCE\"",
+    "owner_examples": [
+      "clix -- laptop local-result <fixture-marker>",
+      "clix job output <job-id>",
+      "clix -- laptop blocked-fixture <fixture-marker>",
+      "clix pin sync server",
+      "clix pin conflicts server",
+      "clix pin take-peer server conflict.txt --token <inspected-token>",
+      "clix pin recovery list",
+      "clix pin recovery inspect <receipt-id>",
+      "clix pin recovery export <receipt-id> retained --token <inspected-token>",
+      "clix pin recovery resolve <receipt-id> restore-retained --token <inspected-token>",
+      "clix pin recovery discard <receipt-id> --token <inspected-token>",
+      "clix add <fixture-path> --once --allow server",
+      "clix --no-wait -- laptop once-gate <fixture-marker> <fixture-gate>",
+      "clix job retry <job-id>"
+    ],
+    "crash": "Python os.killpg for the recorded disposable daemon group, followed by restart from its retained fixture state."
+  },
+  "artifact_sha256": {
+    "run.py": "9c108ecb444383afe252a65b61a6edeb8381f7a96e4e99e6751551ae06ef5ed3",
+    "worker.py": "b8a01e47e3af5f1c531adca48973bfecf51764854233ff0fc56e30e06861e3b3",
+    "controller.log": "fd11c48942b1bed6bd7714820054d61836e98305fdd12c76570b24a1b6e028bc",
+    "runtime-results.raw.json": "49dfb6c60ea937bfba774eda6082635a783899e0331911bdd5cca7ee9a8b1a34",
+    "laptop-control.jsonl": "e52d14bcc57602554e17e33d4422736f8c4f3206ee21ea5fa4d2de52cbd64521",
+    "server-control.jsonl": "141d0e467325b2e0b20b2b2b7ef9afa54aa7b120ec3f7ec936afd8fff09b7e93"
+  },
+  "limits": [
+    "These tests started with new fixture states and modern signed admissions. They do not specifically test migration of pending pre-upgrade jobs. A suspected missing legacy filter was ruled out in the frozen source; a targeted upgrade regression remains separate evidence.",
+    "No production daemon, grant, pairing or pin was changed or upgraded. Fixed fixture scripts are not the production adb hand.",
+    "Daemon process crash/restart does not substitute for physical sleep/resume, power loss, native desktop UX or sustained operational use.",
+    "Raw identifiers, addresses, fixture paths and exact private configuration remain in the private backup; public records use only laptop and server pseudonyms."
+  ]
+}

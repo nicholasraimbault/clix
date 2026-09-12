@@ -1,0 +1,23 @@
+{
+  "result": "suspected defect disproved",
+  "production_source_manifest_sha256": "ef087852b243bd8c1c924f326ac75bff6f1431323bd5f40beb9bb4e30235d197",
+  "production_source_files_verified_unchanged": 103,
+  "tests": 3,
+  "passed": 3,
+  "failed": 0,
+  "ignored": 0,
+  "test_file_sha256": "af79920a3886e262d9526c2267e0404f4056168dcee3b3747ac6101e831d34d7",
+  "test_patch_sha256": "c86c1313bcde7192777c6502f7cf8081c034cb003840ff1c9350eab0d24b8f63",
+  "test_log_sha256": "fc4e69cd6dd104f5af8711b8b5261e2e8e58f0f61ab443cb20105da72a3f3c42",
+  "claim_withdrawn": "Migrated legacy queued/waiting jobs allegedly used the modern protocol and failed. This was incorrect: history::for_job already filters legacy certificates before dispatch selects protocol.",
+  "observed": "Unchanged frozen production source resumed Queued and WaitingBody legacy jobs, recovered an already completed runner result from a legacy Running origin record, preserved invocation ID/output/identity, consumed once exactly once and returned the stored receipt on duplicate delivery without reexecution.",
+  "production_fix": "None justified or applied in this external copy.",
+  "scope": "Existing tests/common TestDaemon harness: in-process sidecars with real Unix/TLS listeners and an actual granted child process. Origin state is serialized in the pre-history shape. This is neither separate daemon-process restart nor physical-machine upgrade proof.",
+  "test_names": [
+    "upgraded_legacy_queued_job_resumes_with_original_id_and_once_grant",
+    "upgraded_legacy_waiting_job_resumes_with_original_id_and_once_grant",
+    "upgraded_legacy_running_job_recovers_existing_result_without_rerunning"
+  ],
+  "command": "cargo test --locked --manifest-path EXTERNAL_SOURCE/Cargo.toml --test legacy_delivery -- --test-threads=1",
+  "build_guard": "External clix package cleaned before test compilation; log visibly compiles the frozen external source."
+}

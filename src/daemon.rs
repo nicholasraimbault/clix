@@ -19,6 +19,9 @@ pub fn dispatch(cmd: Cmd) -> Result<()> {
         Cmd::Daemon => run_daemon(),
         Cmd::Install => crate::install::install(),
         Cmd::Pair { phrase, name } => dispatch_pair(phrase, name),
+        Cmd::Pin(crate::cli::PinCommand::Recovery {
+            command: crate::cli::RecoveryCommand::Export { .. },
+        }) => crate::pin_owner::client_export(&socket_path()?, local::rpc_from_cmd(&cmd)?),
         other => {
             let req = local::rpc_from_cmd(&other)?;
             let resp = client_send(&socket_path()?, req)?;
@@ -87,10 +90,18 @@ async fn serve_inner(
     prepare_socket_path(&sock)?;
     let listener = UnixListener::bind(&sock)?;
     set_owner_mode(&sock)?;
-    {
+    let recovery = {
         let mut s = store.lock().unwrap_or_else(|e| e.into_inner());
         crate::pair::validate_store(&s)?;
-        s.recover_jobs()?;
+        let result = s.recover_jobs();
+        if let Err(error) = &result {
+            s.recovery_failed(error);
+        }
+        result
+    };
+    if let Err(error) = recovery {
+        eprintln!("Clix recovery could not be saved: {error}. Owner inspection remains available; repair storage and restart the sidecar.");
+        return local_loop(store, MeshHandle::default(), listener).await;
     }
     crate::tray::spawn(store.clone());
     let handle = provided
@@ -109,7 +120,7 @@ async fn serve_inner(
         r=local_loop(store.clone(),handle.clone(),listener)=>r,
         r=network=>r,
         _=crate::notify::run(store.clone())=>Ok(()),
-        _=crate::job::dispatch_pending(store.clone(),handle.woke.clone())=>Ok(()),
+        _=crate::job::dispatch_pending(store.clone(),handle.woke.clone(),handle.limits.clone())=>Ok(()),
     }
 }
 
@@ -119,11 +130,13 @@ async fn local_loop(
     listener: UnixListener,
 ) -> Result<()> {
     loop {
+        let permit = mesh.limits.owner().await;
         match listener.accept().await {
             Ok((stream, _)) => {
                 let store = store.clone();
                 let mesh = mesh.clone();
                 tokio::spawn(async move {
+                    let _permit = permit;
                     local::handle_connection(store, mesh, stream).await;
                 });
             }

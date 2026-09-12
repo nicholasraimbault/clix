@@ -511,7 +511,17 @@ fn runner_restart_reports_uncertainty_without_rerunning_or_releasing_once() {
     assert!(grants[0].once);
     assert_eq!(grants[0].reservation.as_deref(), Some(id.as_str()));
     fs::write(&gate, []).unwrap();
-    let retry = server.submit(&tool, &[&marker, &gate]);
+    let inspection = server.cli(&["job", "inspect", &id]);
+    assert!(inspection.status.success());
+    assert!(String::from_utf8_lossy(&inspection.stdout).contains("uncertain"));
+    let attempt = server.cli(&["job", "retry", &id]);
+    assert!(attempt.status.success(), "{attempt:?}");
+    let retry = String::from_utf8(attempt.stdout).unwrap().trim().to_owned();
+    assert_ne!(retry, id);
+    assert_eq!(
+        server.rpc(json!({"op":"job_inspect","job_id":retry}))["view"]["retry_of"],
+        id
+    );
     let denied = server.terminal(&retry);
     assert!(
         matches!(denied.status, JobStatus::Denied { .. }),
@@ -519,6 +529,223 @@ fn runner_restart_reports_uncertainty_without_rerunning_or_releasing_once() {
     );
     assert_eq!(run_count(&marker), 1);
     assert_eq!(laptop.hands()[0].reservation.as_deref(), Some(id.as_str()));
+}
+
+#[test]
+fn owner_cli_retrieves_exact_saved_output_and_prunes_without_erasing_outcomes() {
+    let (laptop, server) = paired();
+    let tool = laptop.fixture(
+        "saved-bytes",
+        r#"printf '\000\377A\n'; printf 'error\n' >&2"#,
+    );
+    laptop.grant(&tool, false);
+    let out = server.cli(&["laptop", tool_name(&tool)]);
+    assert!(out.status.success(), "{out:?}");
+    let id = server.jobs()[0].id.clone();
+    let saved = server.cli(&["job", "output", &id]);
+    assert!(saved.status.success(), "{saved:?}");
+    assert_eq!(saved.stdout, out.stdout);
+    let stderr = server.cli(&["job", "output", &id, "--stderr"]);
+    assert!(stderr.status.success());
+    assert_eq!(stderr.stdout, b"error\n");
+    assert!(server
+        .cli(&["storage", "prune", "--keep-output-jobs", "1"])
+        .status
+        .success());
+    assert_eq!(server.cli(&["job", "output", &id]).stdout, out.stdout);
+    assert!(server.cli(&["storage", "prune"]).status.success());
+    assert!(!server.cli(&["job", "output", &id]).status.success());
+    let view = server.rpc(json!({"op":"job_inspect","job_id":id}));
+    assert_eq!(view["view"]["output_available"], false);
+    assert_eq!(view["view"]["stdout"]["bytes"], out.stdout.len());
+    assert_done(&server.terminal(&id), 0);
+    // The runner still retains bytes, but subsequent replication must not
+    // undo the owner's local output-retention decision.
+    eventually("history synchronization after prune", || {
+        let status = server.rpc(json!({"op":"status"}));
+        (status["history"]["peers"][0]["complete"] == true).then_some(())
+    });
+    assert!(!server.cli(&["job", "output", &id]).status.success());
+}
+
+fn cli_json(daemon: &Daemon, args: &[&str]) -> Value {
+    let output = daemon.cli(args);
+    assert!(output.status.success(), "{args:?}: {output:?}");
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
+#[test]
+fn owner_command_names_do_not_make_paired_bodies_unusable_after_restart() {
+    let mut target = Daemon::spawn();
+    let mut origin = Daemon::spawn();
+    let invitation = target.rpc(json!({"op":"pair_start","name":"pin"}));
+    origin.rpc(json!({"op":"pair_join","name":"job","phrase":invitation["phrase"],"addr":target.mesh_addr}));
+    target.rpc(json!({"op":"pair_await"}));
+    target.rpc(json!({"op":"add","tool":"true","allow":["job"]}));
+    target.restart();
+    origin.restart();
+    let output = origin.cli(&["--", "pin", "true"]);
+    assert!(output.status.success(), "{output:?}");
+    let jobs = origin.jobs();
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0].from.0, "job");
+    assert_eq!(jobs[0].body.0, "pin");
+    assert_done(&jobs[0], 0);
+    assert_eq!(
+        cli_json(&origin, &["pin", "recovery", "list"])["body"],
+        "job"
+    );
+}
+
+#[test]
+fn owner_cli_reviews_restores_exports_and_discards_retained_pin_versions() {
+    let (laptop, server) = paired();
+    let live = laptop.home.path().join("src/note");
+    let peer = server.home.path().join("src/note");
+    fs::write(&live, b"original\0bytes").unwrap();
+    cli_json(&laptop, &["pin", "sync", "server"]);
+    fs::write(&peer, b"peer edit").unwrap();
+    cli_json(&laptop, &["pin", "sync", "server"]);
+    assert_eq!(fs::read(&live).unwrap(), b"peer edit");
+    let list = cli_json(&laptop, &["pin", "recovery", "list"]);
+    let id = list["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["state"] == "retained")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap();
+    let inspected = cli_json(&laptop, &["pin", "recovery", "inspect", id]);
+    let token = inspected["token"].as_str().unwrap();
+    let exported = laptop.cli(&[
+        "pin", "recovery", "export", id, "retained", "--token", token,
+    ]);
+    assert!(exported.status.success(), "{exported:?}");
+    assert_eq!(exported.stdout, b"original\0bytes");
+    fs::write(&live, b"new local edit").unwrap();
+    assert!(!laptop
+        .cli(&[
+            "pin",
+            "recovery",
+            "resolve",
+            id,
+            "restore-retained",
+            "--token",
+            token
+        ])
+        .status
+        .success());
+    assert_eq!(fs::read(&live).unwrap(), b"new local edit");
+    let current = cli_json(&laptop, &["pin", "recovery", "inspect", id]);
+    let resolved = cli_json(
+        &laptop,
+        &[
+            "pin",
+            "recovery",
+            "resolve",
+            id,
+            "restore-retained",
+            "--token",
+            current["token"].as_str().unwrap(),
+        ],
+    );
+    assert_eq!(fs::read(&live).unwrap(), b"original\0bytes");
+    let list = cli_json(&laptop, &["pin", "recovery", "list"]);
+    assert_eq!(
+        list["entries"].as_array().unwrap().len(),
+        2,
+        "displaced live version must be retained: {list}"
+    );
+    cli_json(
+        &laptop,
+        &[
+            "pin",
+            "recovery",
+            "discard",
+            id,
+            "--token",
+            resolved["token"].as_str().unwrap(),
+        ],
+    );
+    assert_eq!(fs::read(&live).unwrap(), b"original\0bytes");
+    assert!(!laptop
+        .cli(&["pin", "recovery", "inspect", id])
+        .status
+        .success());
+    assert!(laptop.hands().is_empty());
+    assert!(laptop.jobs().is_empty());
+}
+
+#[test]
+fn owner_cli_takes_only_the_fresh_peer_conflict_without_running_a_tool() {
+    let (laptop, server) = paired();
+    let live = laptop.home.path().join("src/conflict");
+    let peer = server.home.path().join("src/conflict");
+    fs::write(&live, b"baseline").unwrap();
+    cli_json(&laptop, &["pin", "sync", "server"]);
+    fs::write(&live, b"local").unwrap();
+    fs::write(&peer, b"peer").unwrap();
+    assert!(!laptop.cli(&["pin", "sync", "server"]).status.success());
+    let report = cli_json(&laptop, &["pin", "conflicts", "server"]);
+    let token = report["conflicts"][0]["token"].as_str().unwrap();
+    fs::write(&peer, b"new peer").unwrap();
+    assert!(!laptop
+        .cli(&["pin", "take-peer", "server", "conflict", "--token", token])
+        .status
+        .success());
+    assert_eq!(fs::read(&live).unwrap(), b"local");
+    let report = cli_json(&laptop, &["pin", "conflicts", "server"]);
+    cli_json(
+        &laptop,
+        &[
+            "pin",
+            "take-peer",
+            "server",
+            "conflict",
+            "--token",
+            report["conflicts"][0]["token"].as_str().unwrap(),
+        ],
+    );
+    assert_eq!(fs::read(&live).unwrap(), b"new peer");
+    cli_json(&laptop, &["pin", "sync", "server"]);
+    assert!(laptop.hands().is_empty());
+    assert!(server.hands().is_empty());
+    assert!(laptop.jobs().is_empty());
+    assert!(server.jobs().is_empty());
+}
+
+#[test]
+fn shared_history_survives_process_restarts_and_relay_with_original_runner_offline() {
+    let (mut laptop, mut server) = paired();
+    let mut third = Daemon::spawn();
+    for (daemon, name) in [(&laptop, "laptop"), (&server, "server")] {
+        let invitation = daemon.rpc(json!({"op":"pair_start","name":name}));
+        third.rpc(json!({"op":"pair_join","name":"third","phrase":invitation["phrase"],"addr":daemon.mesh_addr}));
+        daemon.rpc(json!({"op":"pair_await"}));
+    }
+    third.crash();
+    let tool = laptop.fixture("local-result", "printf 'local result\\n'");
+    laptop.grant(&tool, false);
+    let id = laptop.submit(&tool, &[]);
+    assert_done(&laptop.terminal(&id), 0);
+    assert_eq!(server.terminal(&id).stdout, b"local result\n");
+    laptop.crash();
+    server.restart();
+    third.start();
+    assert_eq!(third.terminal(&id).stdout, b"local result\n");
+    third.restart();
+    let view = third.rpc(json!({"op":"job_inspect","job_id":id}));
+    assert_eq!(view["view"]["provenance"], "verified runner result");
+    let state: Value =
+        serde_json::from_slice(&fs::read(third.home.path().join("state/state.json")).unwrap())
+            .unwrap();
+    assert!(
+        state["jobs"].as_array().unwrap().is_empty(),
+        "imported records must never enter local admission"
+    );
+    assert!(third.hands().is_empty());
+    assert!(!third.cli(&["job", "retry", &id]).status.success());
 }
 
 #[test]
@@ -693,4 +920,237 @@ fn offline_permission_request_survives_origin_restart_without_running_a_tool() {
     });
     assert!(laptop.jobs().is_empty());
     assert!(server.jobs().is_empty());
+}
+
+// Linux acceptance prerequisite: unprivileged user/mount/PID namespaces and mount(8).
+// These tests fail if that environment is absent; no skip substitutes another I/O error.
+
+fn isolated_process_enospc(name: &str, run: impl FnOnce()) {
+    if std::env::var("CLIX_PROCESS_ENOSPC_CHILD").as_deref() == Ok(name) {
+        run();
+        return;
+    }
+    let logs = tempfile::tempdir().unwrap();
+    let stdout = logs.path().join("stdout");
+    let stderr = logs.path().join("stderr");
+    let mut child = Command::new("unshare")
+        .args([
+            "--user",
+            "--map-root-user",
+            "--mount",
+            "--pid",
+            "--fork",
+            "--kill-child",
+            "--propagation",
+            "private",
+        ])
+        .arg(std::env::current_exe().unwrap())
+        .args(["--exact", name, "--nocapture", "--test-threads=1"])
+        .env("CLIX_PROCESS_ENOSPC_CHILD", name)
+        .stdin(Stdio::null())
+        .stdout(File::create(&stdout).unwrap())
+        .stderr(File::create(&stderr).unwrap())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(40);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("isolated ENOSPC process test timed out");
+        }
+        thread::sleep(POLL);
+    };
+    assert!(
+        status.success(),
+        "isolated {name} failed:\n{}\n{}",
+        fs::read_to_string(stdout).unwrap(),
+        fs::read_to_string(stderr).unwrap()
+    );
+}
+
+fn daemon_with_private_tmpfs_state() -> Daemon {
+    let home = tempfile::tempdir().unwrap();
+    let state = home.path().join("state");
+    fs::create_dir(&state).unwrap();
+    assert!(Command::new("mount")
+        .args(["-t", "tmpfs", "-o", "size=8M", "tmpfs"])
+        .arg(&state)
+        .status()
+        .unwrap()
+        .success());
+    let sock = home.path().join("owner.sock");
+    let mut daemon = Daemon {
+        home,
+        sock,
+        mesh_addr: "127.0.0.1:0".into(),
+        child: None,
+    };
+    daemon.start();
+    // Give the disposable local body a stable name through an owner operation.
+    // No second body or external account is trusted by this fixture.
+    daemon.rpc(json!({"op":"pair_start", "name":"laptop"}));
+    daemon
+}
+
+fn exhaust_private_state_mount(daemon: &Daemon) -> PathBuf {
+    use std::io::Write;
+    let filler = daemon.home.path().join("state/filler");
+    let mut file = File::create(&filler).unwrap();
+    loop {
+        match file.write_all(&[0x55; 4096]) {
+            Ok(()) => {}
+            Err(e) => {
+                assert_eq!(
+                    e.raw_os_error(),
+                    Some(28),
+                    "fixture must produce actual ENOSPC"
+                );
+                break;
+            }
+        }
+    }
+    filler
+}
+
+fn start_and_wait_for_owner_only(daemon: &mut Daemon) {
+    assert!(daemon.child.is_none());
+    let mut command = daemon.command();
+    command
+        .arg("daemon")
+        .process_group(0)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(File::create(daemon.home.path().join("daemon.stderr")).unwrap());
+    daemon.child = Some(command.spawn().unwrap());
+    eventually("owner listener despite unsaved restart recovery", || {
+        if let Some(exit) = daemon.child.as_mut().unwrap().try_wait().unwrap() {
+            panic!(
+                "sidecar exited {exit} instead of serving owner inspection: {}",
+                daemon.diagnostics()
+            );
+        }
+        owner_rpc(
+            &daemon.sock,
+            json!({"op":"status"}),
+            Duration::from_millis(250),
+        )
+        .ok()
+    });
+}
+
+fn assert_unsaved_uncertainty(daemon: &Daemon, id: &str) {
+    let inspected = daemon.rpc(json!({"op":"job_inspect", "job_id":id}));
+    assert!(
+        inspected["view"]["job"]["status"]["Uncertain"].is_object(),
+        "{inspected}"
+    );
+    assert!(
+        inspected["view"]["local_warning"]
+            .as_str()
+            .is_some_and(|s| s.contains("has not been saved")),
+        "{inspected}"
+    );
+    assert!(
+        inspected["view"]["observations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|o| o["role"] == "runner" && o["status"] == "Running"),
+        "last signed Running evidence must remain distinguishable: {inspected}"
+    );
+    let cli = daemon.cli(&["job", "inspect", id]);
+    assert!(cli.status.success());
+    assert!(String::from_utf8_lossy(&cli.stdout)
+        .to_ascii_lowercase()
+        .contains("uncertain"));
+    assert!(String::from_utf8_lossy(&cli.stderr).contains("has not been saved"));
+    let status = daemon.rpc(json!({"op":"storage_status"}));
+    assert!(status["storage_error"].is_string(), "{status}");
+    assert_eq!(daemon.hands()[0].reservation.as_deref(), Some(id));
+    let durable: Value =
+        serde_json::from_slice(&fs::read(daemon.home.path().join("state/state.json")).unwrap())
+            .unwrap();
+    assert!(durable["jobs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|j| j["id"] == id && j["status"] == "Running"));
+}
+
+#[test]
+fn enospc_completion_exposes_unsaved_uncertainty_without_rewriting_signed_evidence() {
+    isolated_process_enospc(
+        "enospc_completion_exposes_unsaved_uncertainty_without_rewriting_signed_evidence",
+        || {
+            let mut daemon = daemon_with_private_tmpfs_state();
+            let (tool, marker, gate) = gate_fixture(&daemon);
+            daemon.grant(&tool, true);
+            let id = daemon.submit(&tool, &[&marker, &gate]);
+            eventually("fixture took effect", || {
+                (run_count(&marker) == 1).then_some(())
+            });
+            let filler = exhaust_private_state_mount(&daemon);
+            fs::write(&gate, []).unwrap();
+            eventually("completion save failed with full isolated mount", || {
+                let storage = daemon.rpc(json!({"op":"storage_status"}));
+                storage["storage_error"].is_string().then_some(())
+            });
+            assert_unsaved_uncertainty(&daemon, &id);
+            let retry = owner_rpc(
+                &daemon.sock,
+                json!({"op":"job_retry","job_id":id}),
+                DEADLINE,
+            );
+            assert!(retry.is_err(), "poisoned storage admitted a new attempt");
+            assert_eq!(run_count(&marker), 1);
+            fs::remove_file(filler).unwrap();
+            daemon.restart();
+            assert!(matches!(
+                daemon.terminal(&id).status,
+                JobStatus::Uncertain { .. }
+            ));
+            assert_eq!(daemon.hands()[0].reservation.as_deref(), Some(id.as_str()));
+            assert_eq!(run_count(&marker), 1);
+        },
+    );
+}
+
+#[test]
+fn enospc_restart_keeps_owner_inspection_available_and_execution_disabled() {
+    isolated_process_enospc(
+        "enospc_restart_keeps_owner_inspection_available_and_execution_disabled",
+        || {
+            let mut daemon = daemon_with_private_tmpfs_state();
+            let (tool, marker, gate) = gate_fixture(&daemon);
+            daemon.grant(&tool, true);
+            let id = daemon.submit(&tool, &[&marker, &gate]);
+            eventually("fixture took effect", || {
+                (run_count(&marker) == 1).then_some(())
+            });
+            let filler = exhaust_private_state_mount(&daemon);
+            daemon.crash();
+            start_and_wait_for_owner_only(&mut daemon);
+            assert_unsaved_uncertainty(&daemon, &id);
+            assert_eq!(daemon.rpc(json!({"op":"status"}))["mesh_addr"], "");
+            let attempt = owner_rpc(
+                &daemon.sock,
+                exec_request(&tool, &[&marker, &gate], true),
+                DEADLINE,
+            );
+            assert!(attempt.is_err(), "recovery failure admitted execution");
+            assert_eq!(run_count(&marker), 1);
+            fs::remove_file(filler).unwrap();
+            daemon.restart();
+            assert!(matches!(
+                daemon.terminal(&id).status,
+                JobStatus::Uncertain { .. }
+            ));
+            assert_eq!(daemon.hands()[0].reservation.as_deref(), Some(id.as_str()));
+            assert_eq!(run_count(&marker), 1);
+        },
+    );
 }

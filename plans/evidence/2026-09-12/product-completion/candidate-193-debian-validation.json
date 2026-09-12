@@ -1,0 +1,61 @@
+{
+  "body": "server",
+  "candidate": "Frozen 193-test candidate",
+  "source": {
+    "archive_sha256": "8fec67a7651f3cec357adc0ce026aa6d3460c277ad2785de04f16cf4938614ab",
+    "manifest_sha256": "ef087852b243bd8c1c924f326ac75bff6f1431323bd5f40beb9bb4e30235d197",
+    "files": 103,
+    "source_unchanged_after_corrected_release": true
+  },
+  "toolchain": {
+    "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
+    "cargo": "cargo 1.96.1 (356927216 2026-06-26)"
+  },
+  "native_tests": {
+    "command": "CARGO_BUILD_JOBS=2 cargo test --locked --target-dir \"$DEPENDENCY_TARGET\"",
+    "exit": 0,
+    "totals": {
+      "passed": 193,
+      "failed": 0,
+      "ignored": 0
+    },
+    "log_sha256": "80dee01ec6d9a7fcb267a0d4a806c56149fe97fa2a372ef719a9c3a2f47b7aac"
+  },
+  "defeated_release_premise": {
+    "initial_command": "cargo clean -p clix --target-dir \"$DEPENDENCY_TARGET\"",
+    "initial_clean_log_sha256": "66bfafd5b9c470fc056a60e487b37fe9622051f83ba85aa40fc5207fd1a41f98",
+    "observation": "The subsequent release command did not compile Clix and returned the prior candidate release SHA256. Package cleanup without --release left the cached release profile intact with mtime-zero extracted source. This output was rejected as final-candidate build proof.",
+    "stale_release_sha256": "c6c0039dce50458409062bc7b44bd8b9fe5dd5600fc73f172c391865bc563890",
+    "stale_release_log_sha256": "2d5694fb348541fae3d68a033b004800c9c79f8f6edb468d5763b1d8f389597a",
+    "prior_report_sha256": "cea9f86bf4bf44432f235fc117378f48226f288216f271cfeb2aaeb8d2a56a07"
+  },
+  "corrected_release": {
+    "clean_command": "cargo clean -p clix --release --target-dir \"$DEPENDENCY_TARGET\"",
+    "clean_log_sha256": "af28fdcb4243bd3b58daa190de4aa67ac205bc13245b52e22f0ab5606da8ca79",
+    "build_command": "CARGO_BUILD_JOBS=2 cargo build --release --locked --target-dir \"$DEPENDENCY_TARGET\"",
+    "compilation_observed": true,
+    "elapsed_seconds": 56.739620208740234,
+    "release_sha256": "4bc43d0e1697c2e573c7e5c0eece727b4034c5ec8160ca7a0ded7efdc197fc50",
+    "build_log_sha256": "48c04017227d68e84ae915cc5b926e259abb0b2f82f0c2bd7682c577e50ecdc7"
+  },
+  "isolation": {
+    "production_state_unchanged": true,
+    "production_binary_unchanged": true,
+    "production_service_unchanged": true,
+    "no_deployment": true
+  },
+  "limits": [
+    "This preserves native proof for the exact 193-test candidate. A separate targeted pre-upgrade-job regression was being prepared; no production-source correction had been established.",
+    "Earlier 190-test source, logs and release are preserved separately.",
+    "No production upgrade, physical suspend, desktop UX or power-loss claim follows."
+  ],
+  "evidence_note": "Exact remote paths and invocation scripts are private. DEPENDENCY_TARGET denotes the recorded reused target directory, with dedicated source and logs for this candidate.",
+  "review_premise_correction": {
+    "observation": "A suspected missing legacy filter was ruled out by inspection of the actual frozen source.",
+    "source_file": "src/history.rs",
+    "source_file_sha256": "d348752a0956960b834c52bad70111f3f72eb700746b20ca7600b7f4e575500f",
+    "lines": "794-800",
+    "existing_condition": "for_job returns only matching entries whose legacy_observer is None.",
+    "scope": "This source observation rules out the alleged missing filter; it is not runtime upgrade proof."
+  }
+}

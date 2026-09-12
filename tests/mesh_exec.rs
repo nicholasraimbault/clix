@@ -37,6 +37,19 @@ async fn mesh_rejects_all_owner_and_result_injection_operations() {
         "pair_join",
         "job_poll",
         "job_result",
+        "job_inspect",
+        "job_output",
+        "job_retry",
+        "storage_status",
+        "storage_prune",
+        "pin_sync",
+        "pin_conflicts",
+        "pin_take_peer",
+        "pin_recovery_list",
+        "pin_recovery_inspect",
+        "pin_recovery_export",
+        "pin_recovery_resolve",
+        "pin_recovery_discard",
     ] {
         let e = server
             .mesh_raw(

@@ -16,6 +16,8 @@ pub enum ClixError {
     #[error("body is unreachable")]
     Unreachable,
     #[error("{0}")]
+    Capacity(String),
+    #[error("{0}")]
     Protocol(String),
     #[error("Clix is not running. clix install")]
     NoDaemon,

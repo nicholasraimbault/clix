@@ -1,0 +1,159 @@
+{
+  "result": "pass",
+  "machine": "laptop",
+  "baseline_binary_sha256": "5e047ecd6f593a00eb5161aa410740e9852ba7ffa999673ed9c8dd92be79a4a6",
+  "final_binary_sha256": "1f234ab9e5b8e6c03146b3084ceec7c36170d5d3ca542192e4b586e7522d036d",
+  "final_source_manifest_sha256": "ef087852b243bd8c1c924f326ac75bff6f1431323bd5f40beb9bb4e30235d197",
+  "final_source_archive_sha256": "8fec67a7651f3cec357adc0ce026aa6d3460c277ad2785de04f16cf4938614ab",
+  "final_source_files_verified_after_run": 103,
+  "final_source_mismatches": [],
+  "samples_per_operation_per_size": 5,
+  "measured_commands_per_binary": 105,
+  "operation_commands": [
+    "clix status",
+    "clix hands",
+    "clix storage status",
+    "clix job inspect ID",
+    "clix log",
+    "clix add true",
+    "clix remove true"
+  ],
+  "runs": [
+    {
+      "jobs": 100,
+      "state_bytes": 170611,
+      "state_sha256": "fc1b15860c74294f1d709d93cba8b64f12d49e8de0bc68d55627b044dd19ebf8",
+      "unchanged_serialized_fixture": true,
+      "baseline_peak_rss_kib": 11752,
+      "final_peak_rss_kib": 11620,
+      "final_rss_kib": 11620,
+      "operations": {
+        "status": {
+          "baseline_median_ms": 1.2,
+          "final_median_ms": 1.1
+        },
+        "hands": {
+          "baseline_median_ms": 1.0,
+          "final_median_ms": 1.1
+        },
+        "storage status": {
+          "baseline_median_ms": 1.2,
+          "final_median_ms": 1.0
+        },
+        "job inspect ID": {
+          "baseline_median_ms": 2.2,
+          "final_median_ms": 1.0
+        },
+        "log": {
+          "baseline_median_ms": 3.8,
+          "final_median_ms": 3.5
+        },
+        "add true": {
+          "baseline_median_ms": 8.5,
+          "final_median_ms": 8.6
+        },
+        "remove true": {
+          "baseline_median_ms": 8.2,
+          "final_median_ms": 8.3
+        }
+      },
+      "final_grant_add_write_call_bytes": 170738,
+      "final_grant_remove_write_call_bytes": 170619
+    },
+    {
+      "jobs": 1000,
+      "state_bytes": 1701570,
+      "state_sha256": "50cc37580aaf5660da8cb5bde365539fee6bec9bc23f2f9785fa2e96af3224c8",
+      "unchanged_serialized_fixture": true,
+      "baseline_peak_rss_kib": 40352,
+      "final_peak_rss_kib": 37472,
+      "final_rss_kib": 37472,
+      "operations": {
+        "status": {
+          "baseline_median_ms": 1.8,
+          "final_median_ms": 1.9
+        },
+        "hands": {
+          "baseline_median_ms": 1.1,
+          "final_median_ms": 1.1
+        },
+        "storage status": {
+          "baseline_median_ms": 1.1,
+          "final_median_ms": 1.1
+        },
+        "job inspect ID": {
+          "baseline_median_ms": 38.4,
+          "final_median_ms": 1.3
+        },
+        "log": {
+          "baseline_median_ms": 52.9,
+          "final_median_ms": 23.6
+        },
+        "add true": {
+          "baseline_median_ms": 24.7,
+          "final_median_ms": 14.4
+        },
+        "remove true": {
+          "baseline_median_ms": 15.5,
+          "final_median_ms": 14.1
+        }
+      },
+      "final_grant_add_write_call_bytes": 1701697,
+      "final_grant_remove_write_call_bytes": 1701578
+    },
+    {
+      "jobs": 10000,
+      "state_bytes": 17020849,
+      "state_sha256": "e4ecbe8d0cb9ee496abed9a0550ae18e66a275e0d8dc3157afa74be66765e90e",
+      "unchanged_serialized_fixture": true,
+      "baseline_peak_rss_kib": 298292,
+      "final_peak_rss_kib": 297972,
+      "final_rss_kib": 283960,
+      "operations": {
+        "status": {
+          "baseline_median_ms": 3.8,
+          "final_median_ms": 3.6
+        },
+        "hands": {
+          "baseline_median_ms": 1.1,
+          "final_median_ms": 1.0
+        },
+        "storage status": {
+          "baseline_median_ms": 1.2,
+          "final_median_ms": 1.1
+        },
+        "job inspect ID": {
+          "baseline_median_ms": 3271.8,
+          "final_median_ms": 3.8
+        },
+        "log": {
+          "baseline_median_ms": 3414.5,
+          "final_median_ms": 198.7
+        },
+        "add true": {
+          "baseline_median_ms": 67.9,
+          "final_median_ms": 67.7
+        },
+        "remove true": {
+          "baseline_median_ms": 59.9,
+          "final_median_ms": 58.5
+        }
+      },
+      "final_grant_add_write_call_bytes": 17020976,
+      "final_grant_remove_write_call_bytes": 17020857
+    }
+  ],
+  "timing_harness_sha256": "936b17bdda4ffa38b01a561aea375ac505f3e351ca5133f13dad43344c870bcc",
+  "comparison_harness_sha256": "38b1629ea0d0612bab1f8c8e1175d458ccc63bb9bf71ec8f4bc7ab0acbd4d889",
+  "baseline_raw_report_sha256": "74e269eb151e09c755918882bb5928ea6ed08d3d33f158ccd74053120da56de0",
+  "final_raw_report_sha256": "eab7a44c2bae02d01fcf622137d318052ae45a386adba1e59a73a0fbed0a212b",
+  "method": "Identical serialized synthetic fixtures; actual isolated sidecar process and serial owner CLI invocations. One warmup per read operation, five repetitions per operation; stdout discarded. Blocking child wait with independent 120-second watchdog.",
+  "defeated_measurement_premise": "Earlier runs 1\u20133 used timeout polling and included up to 50ms polling delays. They remain preserved; this paired rerun supersedes their timing precision.",
+  "limits": [
+    "Elapsed time includes CLI startup, IPC, rendering and watchdog-thread startup; medians rounded to 0.1ms are observations, not a latency guarantee.",
+    "Peak RSS includes sidecar startup and preceding operations; CLI peak RSS was unavailable.",
+    "A 10000-job fixture still uses about 290MiB peak RSS and rewrites approximately 17MB of state per grant mutation.",
+    "Synthetic completed jobs do not establish process throughput, concurrency, remote mesh throughput or long-term durability.",
+    "State files are byte-identical at end of each run; write-call byte counts include small runtime writes and are not durability guarantees."
+  ]
+}

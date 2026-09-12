@@ -46,7 +46,10 @@ the session D-Bus; the terminal commands also work headlessly.
 
 After upgrading the binary, restart the service with
 `systemctl --user restart clix.service`. Upgrade the CLI and daemon together;
-mixed versions refuse approval commands whose request targeting they cannot honor.
+upgrade paired machines together for shared history. Back up Clix's state and
+`~/src/.clix-recovery` before upgrading. Older binaries cannot safely operate on
+the new recovery phases; restoring a pre-upgrade backup also loses later replay
+receipts. See [operation and recovery](docs/operations.md).
 
 **Before pairing:** Clix automatically pins `~/src` on both machines. Pairing and
 each remote execution synchronize that directory in both directions, including
@@ -88,6 +91,9 @@ clix log
 These are example names. Without `--name`, pairing uses the hostname;
 `clix status` shows this machine and its paired names. Use the actual target
 name in remote commands. On this machine, run tools normally.
+If a body's name matches a Clix command, use `clix -- BODY TOOL ARG…`.
+This explicit form preserves tool arguments, including `--no-wait`; place
+Clix's own `--no-wait` before `--` when needed.
 
 ## Grants and authority
 
@@ -134,20 +140,53 @@ A restarted runner reports an interrupted job as **uncertain** and retains its
 single-use reservation. Inspect the actual command's effects before replacing
 that grant. Output is captured as bytes, up to 4 MiB per stream; exceeding the
 limit reports capture failure. `clix log` shows locally known jobs; it is not
-yet the complete shared history promised by the design.
+an instantaneous view of disconnected machines. Signed history converges among
+paired machines, including local Clix jobs and failures before execution.
+Imported history never grants permission or schedules a job. Authors must be
+explicitly paired to verify their records; the CLI reports incomplete history.
+Older records are labelled as observations by the machine that retained them.
+
+Inspect a job, retrieve its saved bytes, or explicitly create a new attempt:
+
+```sh
+clix job inspect JOB_ID
+clix job output JOB_ID
+clix job output JOB_ID --stderr
+clix job retry JOB_ID
+```
+
+A retry is available on the original caller. It gets a new ID linked to the
+old attempt and checks the current grant. It preserves any uncertain once
+reservation. Saved output has a retention budget; outcomes, output digests and
+replay receipts remain after output is pruned.
 
 ## Current pin limits
 
 Pin supports regular files with UTF-8 paths, at most 16 MiB per file. Symlinks,
 special files, and file/directory replacement are unsupported. Sync runs at
-pairing and before remote execution, not continuously in the background.
+pairing, before remote execution, and when you run `clix pin sync BODY`.
+It is not continuous background replication. A scan supports up to 4096 entries
+and 64 levels of directories.
 
 Displaced files and receipts remain in `~/src/.clix-recovery`. A pending receipt
 or later edit to a retained inode stops further sync until the owner reviews it.
-There is no owner recovery command or retention policy yet. Pin will not replace
+Use `clix pin recovery list` and `clix pin recovery inspect ID` to review
+retained versions. Recovery decisions require the token from that inspection;
+changed versions require a fresh decision. Nothing retained is automatically
+deleted. New pin work stops at the recovery admission budget of 256 MiB or
+4096 entries, with reserved space for recovery metadata. External writers can
+still grow retained inodes; this is not a filesystem quota. Pin will not replace
 an actively granted executable; remove its grant, sync and review the replacement,
-then add it again. See the [repair record](plans/2026-09-11-repair.md) for the
-current manual recovery procedure.
+then add it again. See [operation and recovery](docs/operations.md) for export,
+resolution, disposal and the remaining operating limits.
+
+Clix admits at most four directly launched tools per sidecar and bounds network
+and waiting-client concurrency. Busy jobs remain queued under the same ID.
+State has a 128 MiB encoded limit and a 16 MiB retained-output budget, with
+space reserved for admitted outcomes. Execution and request receipts are kept
+to reject replays; their count limits eventually stop new admissions.
+`clix storage status` shows usage. This is an initial bounded operating policy,
+not a claim of indefinite retention, process sandboxing or proved production scale.
 
 For development, see [CONTRIBUTING.md](CONTRIBUTING.md). Report security issues
 using [SECURITY.md](SECURITY.md).

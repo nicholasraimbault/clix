@@ -34,8 +34,21 @@ pub fn append(
     argv: Vec<String>,
     status: JobStatus,
 ) -> Result<Job> {
+    append_retry(store, from, body, argv, status, None)
+}
+
+pub(crate) fn append_retry(
+    store: &Arc<Mutex<Store>>,
+    from: BodyId,
+    body: BodyId,
+    argv: Vec<String>,
+    status: JobStatus,
+    retry_of: Option<String>,
+) -> Result<Job> {
+    let id = new_id()?;
+    crate::limits::invocation(&id, &argv)?;
     let job = Job {
-        id: new_id()?,
+        id,
         body,
         argv,
         from,
@@ -43,14 +56,17 @@ pub fn append(
         stdout: Vec::new(),
         stderr: Vec::new(),
     };
-    put(store, job)
-}
-
-pub fn put(store: &Arc<Mutex<Store>>, job: Job) -> Result<Job> {
+    crate::limits::invocation(&job.id, &job.argv)?;
     store
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .put_job(job.clone())?;
+        .update(|s| {
+            if let Some(old) = retry_of {
+                s.retry_links.insert(job.id.clone(), old);
+            }
+            s.jobs.push(job.clone());
+            Ok(())
+        })?;
     Ok(job)
 }
 
@@ -71,6 +87,9 @@ pub fn exec_json(job: &Job) -> Value {
             json!({"status":"uncertain", "reason":reason, "job":job})
         }
         JobStatus::WaitingBody => waiting_json(&job.body.0, job),
+        JobStatus::WaitingCapacity => {
+            json!({"ok":true,"status":"capacity_wait","waiting":format!("{} is busy; this job is saved and waiting for capacity",job.body),"job":job})
+        }
         JobStatus::Running => json!({"status":"running", "job":job}),
         JobStatus::Queued => json!({"status":"queued", "job":job}),
     }
@@ -110,6 +129,7 @@ pub fn apply_peer_result(
     peer: &BodyId,
     incoming: &Job,
 ) -> Result<Option<Job>> {
+    crate::limits::result(incoming)?;
     let mut s = store.lock().unwrap_or_else(|e| e.into_inner());
     let Some(existing) = s.jobs.iter().find(|j| j.id == incoming.id) else {
         return Ok(None);
@@ -132,59 +152,157 @@ pub fn apply_peer_result(
     Ok(Some(incoming.clone()))
 }
 
-/// One dispatcher owns outbound delivery, including restoration after restart.
-/// Every attempt uses the original durable job ID; the receiver deduplicates it.
-pub async fn dispatch_pending(store: Arc<Mutex<Store>>, woke: Arc<Notify>) {
+/// Fair, bounded attempts. Queued work stays durable in Store; no task waits
+/// for a dispatcher permit. Only the selected rows are cloned.
+pub(crate) async fn dispatch_pending(
+    store: Arc<Mutex<Store>>,
+    woke: Arc<Notify>,
+    limits: Arc<crate::limits::Limits>,
+) {
+    use std::collections::{BTreeMap, HashMap};
+    use tokio::time::Instant;
+
+    enum Work<'a> {
+        Job(&'a Job),
+        Request(&'a crate::types::OutboundRequest),
+        History(&'a crate::types::Peer),
+        Local(&'a Job),
+    }
+
     let mut tasks = tokio::task::JoinSet::new();
-    let mut active = std::collections::HashSet::new();
+    let mut active: HashMap<tokio::task::Id, String> = HashMap::new();
+    let mut next_attempt: BTreeMap<String, Instant> = BTreeMap::new();
+    let mut cursor = String::new();
     loop {
-        let pending: Vec<Job> = {
+        {
             let s = store.lock().unwrap_or_else(|e| e.into_inner());
-            s.jobs
-                .iter()
-                .filter(|j| {
-                    j.from.0 == s.body_name && j.body.0 != s.body_name && !is_terminal(&j.status)
-                })
-                .cloned()
-                .collect()
-        };
-        for j in pending {
-            if active.insert(j.id.clone()) {
-                let s = store.clone();
-                tasks.spawn(async move {
-                    if let Err(e) = dispatch_one(&s, &j).await {
-                        eprintln!("could not update job {}: {e}", j.id);
-                    }
-                    j.id
-                });
+            let mut candidates = Vec::new();
+            for j in &s.jobs {
+                if j.from.0 == s.body_name && j.body.0 != s.body_name && !is_terminal(&j.status) {
+                    candidates.push((format!("job:{}", j.id), Work::Job(j)));
+                } else if j.from.0 == s.body_name
+                    && j.body.0 == s.body_name
+                    && matches!(j.status, JobStatus::Queued | JobStatus::WaitingCapacity)
+                {
+                    candidates.push((format!("local:{}", j.id), Work::Local(j)));
+                }
             }
-        }
-        let requests = store
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .outbound_requests
-            .clone();
-        for request in requests.into_iter().filter(|r| r.error.is_none()) {
-            let id = format!("request:{}", request.id);
-            if active.insert(id.clone()) {
-                let s = store.clone();
-                tasks.spawn(async move {
-                    if let Err(e) = crate::request::deliver(&s, &request).await {
-                        eprintln!("could not update request {}: {e}", request.id);
+            for request in s.outbound_requests.iter().filter(|r| r.error.is_none()) {
+                candidates.push((format!("request:{}", request.id), Work::Request(request)));
+            }
+            for peer in &s.peers {
+                candidates.push((format!("history:{}", peer.name), Work::History(peer)));
+            }
+            candidates.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+            next_attempt.retain(|key, _| candidates.binary_search_by(|(k, _)| k.cmp(key)).is_ok());
+            let start = candidates.partition_point(|(key, _)| key <= &cursor);
+            let now = Instant::now();
+            let mut last = None;
+            for (key, work) in candidates[start..].iter().chain(candidates[..start].iter()) {
+                if tasks.len() >= crate::limits::DISPATCH {
+                    break;
+                }
+                if active.values().any(|running| running == key)
+                    || next_attempt.get(key).is_some_and(|when| *when > now)
+                {
+                    continue;
+                }
+                let store = store.clone();
+                let handle = match work {
+                    Work::Job(j) => {
+                        let j = (*j).clone();
+                        tasks.spawn(async move {
+                            if let Err(e) = dispatch_one(&store, &j).await {
+                                eprintln!("could not update job {}: {e}", j.id);
+                            }
+                        })
                     }
-                    id
-                });
+                    Work::Request(request) => {
+                        let request = (*request).clone();
+                        tasks.spawn(async move {
+                            if let Err(e) = crate::request::deliver(&store, &request).await {
+                                eprintln!("could not update request {}: {e}", request.id);
+                            }
+                        })
+                    }
+                    Work::History(peer) => {
+                        let peer = (*peer).clone();
+                        tasks.spawn(async move {
+                            if let Err(e) = crate::history::sync_peer(&store, &peer).await {
+                                let mut s = store.lock().unwrap_or_else(|e| e.into_inner());
+                                let p = s.history.peers.entry(peer.name.0).or_default();
+                                p.complete = false;
+                                p.error = Some(if matches!(e, ClixError::Unreachable) {
+                                    "unreachable; saved history may be stale".into()
+                                } else {
+                                    e.to_string()
+                                });
+                            }
+                        })
+                    }
+                    Work::Local(job) => {
+                        let job = (*job).clone();
+                        let limits = limits.clone();
+                        tasks.spawn(async move {
+                            if let Err(error) = crate::exec::submit(
+                                &store,
+                                &limits,
+                                &job.from,
+                                &job.argv,
+                                job.id.clone(),
+                            ) {
+                                let mut s = store.lock().unwrap_or_else(|e| e.into_inner());
+                                let result = s.update(|s| {
+                                    let j = s.jobs.iter_mut().find(|j| j.id == job.id).ok_or_else(
+                                        || {
+                                            ClixError::Protocol(
+                                                "queued local job disappeared".into(),
+                                            )
+                                        },
+                                    )?;
+                                    if !matches!(
+                                        j.status,
+                                        JobStatus::Queued | JobStatus::WaitingCapacity
+                                    ) {
+                                        return Ok(());
+                                    }
+                                    j.status = if matches!(error, ClixError::Capacity(_)) {
+                                        JobStatus::WaitingCapacity
+                                    } else {
+                                        JobStatus::Failed {
+                                            reason: error.to_string(),
+                                        }
+                                    };
+                                    Ok(())
+                                });
+                                if let Err(e) = result {
+                                    eprintln!("could not update queued local job: {e}");
+                                }
+                            }
+                        })
+                    }
+                };
+                active.insert(handle.id(), key.clone());
+                next_attempt.insert(key.clone(), now + poll_interval());
+                last = Some(key.clone());
+            }
+            if let Some(last) = last {
+                cursor = last;
             }
         }
         tokio::select! {
-            result = tasks.join_next(), if !tasks.is_empty() => {
-                match result {
-                    Some(Ok(id)) => { active.remove(&id); }
-                    Some(Err(e)) => { eprintln!("job dispatcher task failed: {e}"); active.clear(); }
-                    None => {}
+            result = tasks.join_next_with_id(), if !tasks.is_empty() => {
+                let finished = match result {
+                    Some(Ok((id, ()))) => Some(id),
+                    Some(Err(e)) => {
+                        eprintln!("job dispatcher task failed: {e}");
+                        Some(e.id())
+                    }
+                    None => None,
+                };
+                if let Some(id) = finished {
+                    active.remove(&id);
                 }
-                // Avoid immediately retrying a reachable running job in a busy loop.
-                tokio::time::sleep(poll_interval()).await;
             }
             _ = tokio::time::sleep(poll_interval()) => {}
             _ = woke.notified() => {}
@@ -193,26 +311,41 @@ pub async fn dispatch_pending(store: Arc<Mutex<Store>>, woke: Arc<Notify>) {
 }
 
 async fn dispatch_one(store: &Arc<Mutex<Store>>, job: &Job) -> Result<()> {
-    let (peer, sk) = {
+    let (peer, sk, certificate) = {
         let s = store.lock().unwrap_or_else(|e| e.into_inner());
+        s.ensure_writable()?;
         (
             s.peers.iter().find(|p| p.name == job.body).cloned(),
             s.owner_sk.clone(),
+            crate::history::for_job(&s, job).map(|e| e.record.certificate.clone()),
         )
     };
     let outcome = async {
         let peer = peer.ok_or_else(|| ClixError::Usage(format!("{} is not paired", job.body)))?;
         let addr = peer.addr.as_deref().ok_or(ClixError::Unreachable)?;
-        let known = mesh::call(
-            addr,
-            &sk,
-            &peer.owner_pk,
-            json!({"op":"job_get","job_id":job.id}),
-        )
-        .await?;
-        if let Some(value) = known.get("job").filter(|v| !v.is_null()) {
-            let existing: Job = serde_json::from_value(value.clone())?;
-            apply_peer_result(store, &peer.name, &existing)?;
+        let query = certificate.as_ref().map_or_else(
+            || json!({"op":"job_get","job_id":job.id}),
+            |c| json!({"op":"job_get_v2","invocation":c}),
+        );
+        let apply = |response: &Value| -> Result<()> {
+            if certificate.is_some() {
+                let published: crate::history::Published =
+                    serde_json::from_value(response.get("history").cloned().ok_or_else(|| {
+                        ClixError::Protocol("peer response is missing signed history".into())
+                    })?)?;
+                store
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .update(|s| crate::history::accept_runner_reply(s, &peer.name, &published))?;
+            } else {
+                let job: Job = serde_json::from_value(response["job"].clone())?;
+                apply_peer_result(store, &peer.name, &job)?;
+            }
+            Ok(())
+        };
+        let known = mesh::call(addr, &sk, &peer.owner_pk, query).await?;
+        if known.get("job").is_some_and(|v| !v.is_null()) {
+            apply(&known)?;
             return Ok(());
         }
         {
@@ -222,14 +355,13 @@ async fn dispatch_one(store: &Arc<Mutex<Store>>, job: &Job) -> Result<()> {
             addr,
             &sk,
             &peer.owner_pk,
-            json!({"op":"exec","argv":job.argv,"job_id":job.id}),
+            certificate.as_ref().map_or_else(
+                || json!({"op":"exec","argv":job.argv,"job_id":job.id}),
+                |c| json!({"op":"exec_v2","invocation":c}),
+            ),
         )
         .await?;
-        let v = resp
-            .get("job")
-            .ok_or_else(|| ClixError::Protocol("peer response is missing its job".into()))?;
-        let received: Job = serde_json::from_value(v.clone())?;
-        apply_peer_result(store, &peer.name, &received)?;
+        apply(&resp)?;
         Ok(())
     }
     .await;
@@ -242,7 +374,13 @@ async fn dispatch_one(store: &Arc<Mutex<Store>>, job: &Job) -> Result<()> {
             return Ok(());
         }
         let mut updated = existing.clone();
-        if is_unreachable(&e) {
+        if matches!(e, ClixError::Capacity(_)) {
+            // The runner rejected admission. Keep this exact ID retryable.
+            // A known Running job must never regress because of a later error.
+            if !matches!(updated.status, JobStatus::Running) {
+                updated.status = JobStatus::WaitingCapacity;
+            }
+        } else if is_unreachable(&e) {
             // A known running job remains running: loss of connectivity is not
             // evidence that execution stopped. Redelivery still uses the same ID.
             if !matches!(updated.status, JobStatus::Running) {
@@ -267,6 +405,7 @@ pub fn format_line(job: &Job) -> String {
         JobStatus::Failed { reason } => format!("failed: {reason}"),
         JobStatus::Uncertain { reason } => format!("uncertain: {reason}"),
         JobStatus::WaitingBody => "waiting".into(),
+        JobStatus::WaitingCapacity => "waiting for capacity".into(),
         JobStatus::Running => "running".into(),
         JobStatus::Queued => "queued".into(),
     };

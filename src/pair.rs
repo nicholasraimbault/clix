@@ -76,21 +76,16 @@ pub(crate) fn hostname() -> String {
 }
 
 pub(crate) fn validate_name(name: &str) -> Result<()> {
-    const RESERVED: &[&str] = &[
-        "daemon", "install", "pair", "add", "remove", "hands", "log", "pending", "allow", "deny",
-        "request", "status",
-    ];
     if !name
         .as_bytes()
         .first()
         .is_some_and(u8::is_ascii_alphanumeric)
         || name.len() > 63
-        || RESERVED.contains(&name)
         || !name
             .bytes()
             .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
     {
-        return Err(ClixError::Usage("body name must start with a letter or digit, contain 1–63 letters, digits, hyphens or underscores, and not be a Clix command".into()));
+        return Err(ClixError::Usage("body name must start with a letter or digit and contain 1–63 letters, digits, hyphens or underscores".into()));
     }
     Ok(())
 }

@@ -1,0 +1,185 @@
+{
+  "result": "passed",
+  "scope": "Two real child daemons and real owner CLI over loopback PAKE/TLS, disposable state and pin roots, warm-cache Linux x86_64 measurements; no grants or jobs. This is not actual two-machine performance proof.",
+  "source_manifest_sha256": "ef087852b243bd8c1c924f326ac75bff6f1431323bd5f40beb9bb4e30235d197",
+  "source_archive_sha256": "8fec67a7651f3cec357adc0ce026aa6d3460c277ad2785de04f16cf4938614ab",
+  "binary_sha256": "1f234ab9e5b8e6c03146b3084ceec7c36170d5d3ca542192e4b586e7522d036d",
+  "benchmark_sha256": "6e83adabb2945eca8c933a7b62d8066705ed5344748fdccdabb87c4106ca0d72",
+  "base_revision": "ac1291681f8e549fe9c72425442245e37939ffd1",
+  "source_is_uncommitted_candidate_identified_by_manifest": true,
+  "verified_source_files": 103,
+  "source_changed_during_run": false,
+  "command_exit_code": 0,
+  "command_template": "python3 benchmark.py --binary CLIX_RELEASE --source SOURCE_ROOT --output NEW_EVIDENCE_DIR --samples 3",
+  "fixture": {
+    "tree_file_bytes": 4096,
+    "tree_directories": 32,
+    "tree_resulting_file_counts": [
+      128,
+      512,
+      2048
+    ],
+    "retained_one_mib_versions": [
+      1,
+      4,
+      16
+    ],
+    "export_bytes": 16777216,
+    "export_repetitions": 3,
+    "tokio_workers_per_daemon": 2
+  },
+  "new_file_batches": [
+    {
+      "resulting_files": 128,
+      "new_files": 128,
+      "samples": 1,
+      "final_seconds": 0.194,
+      "baseline_seconds": 5.547,
+      "controlled_nodelay_seconds": 0.186,
+      "baseline_to_final_ratio": 28.57
+    },
+    {
+      "resulting_files": 512,
+      "new_files": 384,
+      "samples": 1,
+      "final_seconds": 0.572,
+      "baseline_seconds": 16.396,
+      "controlled_nodelay_seconds": 0.554,
+      "baseline_to_final_ratio": 28.68
+    },
+    {
+      "resulting_files": 2048,
+      "new_files": 1536,
+      "samples": 1,
+      "final_seconds": 2.375,
+      "baseline_seconds": 65.396,
+      "controlled_nodelay_seconds": 2.314,
+      "baseline_to_final_ratio": 27.53
+    }
+  ],
+  "repeated_measurements": [
+    {
+      "operation": "tree_unchanged_sync",
+      "files": 128,
+      "samples": 3,
+      "median_ms": 10.62,
+      "range_ms": [
+        10.55,
+        11.0
+      ]
+    },
+    {
+      "operation": "tree_unchanged_sync",
+      "files": 512,
+      "samples": 3,
+      "median_ms": 25.99,
+      "range_ms": [
+        25.81,
+        26.61
+      ]
+    },
+    {
+      "operation": "tree_unchanged_sync",
+      "files": 2048,
+      "samples": 3,
+      "median_ms": 87.98,
+      "range_ms": [
+        84.35,
+        88.52
+      ]
+    },
+    {
+      "operation": "recovery_list",
+      "retained_versions": 1,
+      "samples": 3,
+      "median_ms": 2.34,
+      "range_ms": [
+        2.05,
+        2.53
+      ]
+    },
+    {
+      "operation": "recovery_list",
+      "retained_versions": 4,
+      "samples": 3,
+      "median_ms": 4.26,
+      "range_ms": [
+        3.7,
+        4.65
+      ]
+    },
+    {
+      "operation": "recovery_list",
+      "retained_versions": 16,
+      "samples": 3,
+      "median_ms": 9.81,
+      "range_ms": [
+        9.71,
+        9.93
+      ]
+    },
+    {
+      "operation": "recovery_export",
+      "file_bytes": 16777216,
+      "samples": 3,
+      "median_ms": 771.5,
+      "range_ms": [
+        770.92,
+        783.95
+      ]
+    }
+  ],
+  "control_probes": {
+    "interval_target_ms": 50,
+    "count": 266,
+    "max_observed_ms": 17.88,
+    "errors": 0,
+    "limit": "Samples during timed actions; no hard response-time guarantee, including unmeasured fixture setup."
+  },
+  "memory": {
+    "maximum_sampled_daemon_vmrss_bytes": 57786368,
+    "maximum_daemon_lifetime_vmhwm_bytes": 171896832,
+    "limit": "VmRSS sampled during timed actions; VmHWM is per-daemon lifetime peak including setup/publication, not export-only memory and not a system-wide peak."
+  },
+  "io_observations": {
+    "recovery_list_16_versions_receiver_logical_read_bytes": [
+      17835072
+    ],
+    "export_16_mib_receiver_logical_read_bytes": [
+      50332224
+    ],
+    "physical_read_bytes_during_timed_actions": 0,
+    "limit": "Linux /proc rchar/read_bytes observations include owner probes; warm cache, not disk throughput."
+  },
+  "correctness": {
+    "tree_destination_counts_matched": true,
+    "tree_byte_hashes_individually_checked": false,
+    "recovery_list_unblocked_with_no_next_page_at_1_4_16_generations": true,
+    "export_exact_length_and_sha256_matched_all_3_samples": true,
+    "export_expected_sha256": "341aacac661ccb210720bedaa9ead5d668fe5ea41a73532fc147c71e34040df1",
+    "admission_refusal": {
+      "exit_code": 1,
+      "new_file_published": false,
+      "sparse_fixture": true,
+      "sparse_logical_bytes": 268435457,
+      "sparse_allocated_bytes": 0,
+      "actual_enospc": false
+    },
+    "retained_files_individually_rehashed_after_admission_refusal": false,
+    "grants_and_jobs_empty_after_fixture": true
+  },
+  "timing_method": {
+    "clock": "time.perf_counter around action, excluding later watcher thread join",
+    "cli": "subprocess.run with stdin DEVNULL, stdout PIPE or export file, stderr PIPE, timeout=180; Python 3.14 _communicate uses selector until pipe EOF then wait(remaining timeout)",
+    "scope": "CLI launch, owner request, JSON response parsing; export includes output close and independent full-byte SHA256 validation",
+    "precision_limit": "Three warm-cache samples where repeated; single sample per new-file batch. Numbers are observations and should be rounded, not treated as guaranteed precision. Remaining wait after pipe EOF may add scheduler/exit overhead.",
+    "product_timeout_unchanged": true,
+    "python_subprocess_source_sha256": "6628ffdd65c093a6c08cae01ffe82877d3ced515aac9e7be0cff16512c30a7d9"
+  },
+  "limits": [
+    "No two-machine/Tailscale/WAN latency claim.",
+    "No actual ENOSPC, cold-cache, long-running, power-loss or maximum-tree-size proof.",
+    "Capacity fixture proved reported logical over-limit and nonzero refusal with no new destination file; it did not rehash every preexisting retained file after refusal.",
+    "Incremental timing is one observation per batch; repeated timings use three samples."
+  ]
+}

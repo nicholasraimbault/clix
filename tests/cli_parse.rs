@@ -5,6 +5,34 @@ use clix::ClixError;
 use clix::Cmd;
 
 #[test]
+fn explicit_destination_preserves_body_identity_and_all_tool_arguments() {
+    for (args, no_wait) in [
+        (vec!["clix", "--", "job", "tool", "--no-wait", "--"], false),
+        (
+            vec!["clix", "--no-wait", "--", "pin", "tool", "--no-wait", "--"],
+            true,
+        ),
+    ] {
+        let body = if no_wait { "pin" } else { "job" };
+        assert_eq!(
+            parse_argv(&args.into_iter().map(String::from).collect::<Vec<_>>()).unwrap(),
+            Cmd::Exec {
+                body: body.into(),
+                argv: vec!["tool".into(), "--no-wait".into(), "--".into()],
+                no_wait
+            }
+        );
+    }
+    for args in [
+        vec!["clix", "--"],
+        vec!["clix", "--", "job"],
+        vec!["clix", "--", "-bad", "tool"],
+    ] {
+        assert!(parse_argv(&args.into_iter().map(String::from).collect::<Vec<_>>()).is_err());
+    }
+}
+
+#[test]
 fn exec_is_body_then_argv() {
     let cmd = parse_argv(&[
         "clix".into(),

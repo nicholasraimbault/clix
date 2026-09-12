@@ -62,6 +62,7 @@ pub fn add(
     until: Option<SystemTime>,
     schedule: Option<Schedule>,
 ) -> Result<Grant> {
+    crate::limits::tool(tool)?;
     if once && schedule.is_some() {
         return Err(ClixError::Usage(
             "use --once or a schedule, not both".into(),

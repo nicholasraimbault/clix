@@ -33,6 +33,9 @@ pub enum Cmd {
         tool: String,
     },
     Log,
+    Job(JobCommand),
+    Storage(StorageCommand),
+    Pin(PinCommand),
     Pending,
     Allow {
         request_id: String,
@@ -61,6 +64,9 @@ pub enum Cmd {
 #[derive(Parser, Debug)]
 #[command(name = "clix", disable_help_subcommand = true, color = ColorChoice::Never)]
 #[command(allow_external_subcommands = true)]
+#[command(
+    after_help = "Named machine: clix [--no-wait] -- BODY TOOL ARG…\nUse this form when BODY matches an owner command; tool arguments are preserved."
+)]
 struct Cli {
     #[arg(long = "no-wait", global = true)]
     no_wait: bool,
@@ -85,6 +91,18 @@ enum Commands {
         tool: Option<String>,
     },
     Log,
+    Job {
+        #[command(subcommand)]
+        command: JobCommand,
+    },
+    Storage {
+        #[command(subcommand)]
+        command: StorageCommand,
+    },
+    Pin {
+        #[command(subcommand)]
+        command: PinCommand,
+    },
     Pending,
     Allow {
         #[arg(value_name = "REQUEST_ID")]
@@ -105,6 +123,82 @@ enum Commands {
     Status,
     #[command(external_subcommand)]
     External(Vec<String>),
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum JobCommand {
+    Inspect {
+        job_id: String,
+    },
+    Output {
+        job_id: String,
+        #[arg(long)]
+        stderr: bool,
+    },
+    Retry {
+        job_id: String,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum StorageCommand {
+    Status,
+    Prune {
+        #[arg(long, default_value_t = 0)]
+        keep_output_jobs: usize,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum PinCommand {
+    /// Synchronize pins with the named machine without running a tool.
+    Sync { body: String },
+    /// Inspect current conflicts with the named machine.
+    Conflicts { body: String },
+    /// Adopt the inspected peer version on this machine, retaining displaced data.
+    TakePeer {
+        body: String,
+        path: String,
+        #[arg(long)]
+        token: String,
+    },
+    Recovery {
+        #[command(subcommand)]
+        command: RecoveryCommand,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum RecoveryCommand {
+    List {
+        #[arg(long)]
+        after: Option<String>,
+    },
+    Inspect {
+        id: String,
+    },
+    /// Write the inspected version's bytes to stdout; errors exit nonzero.
+    Export {
+        id: String,
+        #[arg(value_parser=["receipt","live","retained"])]
+        version: String,
+        #[arg(long)]
+        token: String,
+    },
+    /// Resolve exactly the versions shown by inspection.
+    Resolve {
+        id: String,
+        #[arg(value_parser=["keep-live","restore-retained"])]
+        choice: String,
+        #[arg(long)]
+        token: String,
+    },
+    /// Permanently remove an explicitly inspected retained version or artifact.
+    Discard {
+        id: String,
+        #[arg(long)]
+        token: String,
+    },
 }
 
 #[derive(clap::Args, Debug)]
@@ -132,6 +226,31 @@ struct GrantCli {
 }
 
 pub fn parse_argv(argv: &[String]) -> Result<Cmd> {
+    // A new owner command must not make an existing paired body unreachable.
+    // The explicit destination form also leaves every tool argument untouched.
+    let explicit = if argv.get(1).is_some_and(|s| s == "--") {
+        Some((2, false))
+    } else if argv.get(1).is_some_and(|s| s == "--no-wait")
+        && argv.get(2).is_some_and(|s| s == "--")
+    {
+        Some((3, true))
+    } else {
+        None
+    };
+    if let Some((start, no_wait)) = explicit {
+        let parts = &argv[start..];
+        if parts.len() < 2 {
+            return Err(ClixError::Usage(
+                "usage: clix [--no-wait] -- <body> <cmd>…".into(),
+            ));
+        }
+        crate::pair::validate_name(&parts[0])?;
+        return Ok(Cmd::Exec {
+            body: parts[0].clone(),
+            argv: parts[1..].to_vec(),
+            no_wait,
+        });
+    }
     let cli = Cli::try_parse_from(argv).map_err(|e| ClixError::Usage(e.to_string()))?;
     match cli.command {
         None => Err(ClixError::Usage("usage: clix <command>".into())),
@@ -158,6 +277,9 @@ pub fn parse_argv(argv: &[String]) -> Result<Cmd> {
             Ok(Cmd::Remove { tool })
         }
         Some(Commands::Log) => Ok(Cmd::Log),
+        Some(Commands::Job { command }) => Ok(Cmd::Job(command)),
+        Some(Commands::Storage { command }) => Ok(Cmd::Storage(command)),
+        Some(Commands::Pin { command }) => Ok(Cmd::Pin(command)),
         Some(Commands::Pending) => Ok(Cmd::Pending),
         Some(Commands::Allow { request_id, grant }) => {
             let g = parse_grant_cli(grant, true)?;
@@ -189,9 +311,6 @@ pub fn parse_argv(argv: &[String]) -> Result<Cmd> {
             let (parts, no_wait) = strip_no_wait(parts, cli.no_wait);
             if parts.is_empty() {
                 return Err(ClixError::Usage("usage: clix <body> <cmd>…".into()));
-            }
-            if is_reserved(&parts[0]) {
-                return Err(ClixError::Usage(format!("usage: clix {} …", parts[0])));
             }
             if parts.len() < 2 {
                 return Err(ClixError::Usage("usage: clix <body> <cmd>…".into()));
@@ -289,25 +408,7 @@ fn strip_no_wait(mut parts: Vec<String>, mut no_wait: bool) -> (Vec<String>, boo
     (parts, no_wait)
 }
 
-/// CLI reserved words. Not body names, even when the Cmd variant is not built yet.
-fn is_reserved(word: &str) -> bool {
-    matches!(
-        word,
-        "daemon"
-            | "install"
-            | "pair"
-            | "add"
-            | "remove"
-            | "hands"
-            | "log"
-            | "pending"
-            | "allow"
-            | "deny"
-            | "request"
-            | "status"
-    )
-}
-
+/// The same command namespace is enforced when choosing a body name.
 fn validate_days(days: Vec<String>) -> Result<Vec<String>> {
     const NAMES: &[&str] = &["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
     let mut out = Vec::with_capacity(days.len());

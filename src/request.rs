@@ -12,10 +12,9 @@ pub(crate) fn receive(
     tool: &str,
     delivery_id: Option<&str>,
 ) -> Result<Request> {
+    crate::limits::tool(tool)?;
     if let Some(id) = delivery_id {
-        if id.is_empty() || id.len() > 128 {
-            return Err(ClixError::Protocol("invalid request ID".into()));
-        }
+        crate::limits::identifier(id)?;
         if let Some(receipt) = store
             .request_receipts
             .iter()
@@ -45,6 +44,7 @@ pub(crate) async fn deliver(
 ) -> Result<()> {
     let (peer, sk) = {
         let s = store.lock().unwrap_or_else(|e| e.into_inner());
+        s.ensure_writable()?;
         (
             s.peers.iter().find(|p| p.name == request.body).cloned(),
             s.owner_sk.clone(),
@@ -90,6 +90,7 @@ pub(crate) async fn deliver(
 
 /// Record a grant request on this body. Same from+tool refreshes the existing row.
 pub fn upsert(store: &mut Store, from: BodyId, tool: &str) -> Result<Request> {
+    crate::limits::tool(tool)?;
     if tool.is_empty() {
         return Err(ClixError::Usage("usage: clix request <body> <tool>".into()));
     }
