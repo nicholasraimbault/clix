@@ -62,6 +62,22 @@ pub fn add(
     until: Option<SystemTime>,
     schedule: Option<Schedule>,
 ) -> Result<Grant> {
+    let grant = build(store, tool, allow, once, until, schedule)?;
+    commit(store, grant.clone());
+    Ok(grant)
+}
+
+/// Construct the grant an `add`/approval would produce, validating the tool and
+/// allow-list, without touching `store`. Callers that must not silently replace
+/// an existing grant compare this against the current one before committing.
+pub(crate) fn build(
+    store: &Store,
+    tool: &str,
+    allow: &[String],
+    once: bool,
+    until: Option<SystemTime>,
+    schedule: Option<Schedule>,
+) -> Result<Grant> {
     crate::limits::tool(tool)?;
     if once && schedule.is_some() {
         return Err(ClixError::Usage(
@@ -79,7 +95,7 @@ pub fn add(
     } else {
         Some(allow.iter().cloned().map(BodyId).collect())
     };
-    let grant = Grant {
+    Ok(Grant {
         tool: tool_key(tool),
         binary,
         allow_from,
@@ -87,11 +103,26 @@ pub fn add(
         until,
         schedule,
         reservation: None,
-    };
+    })
+}
+
+/// Replace any grant for the same tool with this one and invalidate its pending
+/// requests. This is the explicit owner path (`clix add`); the request-approval
+/// path guards against replacing a *different* grant before calling it.
+pub(crate) fn commit(store: &mut Store, grant: Grant) {
     store.grants.retain(|g| g.tool != grant.tool);
     store.grants.push(grant.clone());
     invalidate_requests(store, &grant.tool);
-    Ok(grant)
+}
+
+/// Two grants describe the same permission, ignoring a transient run reservation.
+pub(crate) fn same_permission(a: &Grant, b: &Grant) -> bool {
+    a.tool == b.tool
+        && a.binary == b.binary
+        && a.allow_from == b.allow_from
+        && a.once == b.once
+        && a.until == b.until
+        && a.schedule == b.schedule
 }
 
 /// Resolve only the spelling of a removal path, never its filesystem target.

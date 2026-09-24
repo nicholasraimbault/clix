@@ -185,8 +185,23 @@ pub(crate) fn decide(store: &mut Store, id: &str, decision: Decision) -> Result<
                 }
                 Scope::AllPaired => Vec::new(),
             };
-            // add also invalidates every older request for this grant slot.
-            grant::add(store, &req.tool, &allow, once, until, schedule).map(Some)
+            let prospective = grant::build(store, &req.tool, &allow, once, until, schedule)?;
+            // Approving a request must not silently replace a *different*
+            // existing grant for the same tool (dropping its allow-list, expiry
+            // or schedule, or revoking another machine). The owner changes an
+            // existing grant explicitly with clix add / clix remove. An
+            // identical re-approval is idempotent and still clears the request.
+            if let Some(existing) = store.grants.iter().find(|g| g.tool == prospective.tool) {
+                if !grant::same_permission(existing, &prospective) {
+                    return Err(ClixError::Usage(format!(
+                        "{} already has a grant on {}; change it with clix add / clix remove rather than approving this request",
+                        prospective.tool, store.body_name
+                    )));
+                }
+            }
+            // commit also invalidates every older request for this grant slot.
+            grant::commit(store, prospective.clone());
+            Ok(Some(prospective))
         }
         Decision::Deny => {
             store.requests.remove(idx);
@@ -199,6 +214,47 @@ pub(crate) fn decide(store: &mut Store, id: &str, decision: Decision) -> Result<
 mod tests {
     use super::*;
     use crate::types::Peer;
+
+    #[test]
+    fn approval_never_silently_replaces_a_differing_grant() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path()).unwrap();
+        store.body_name = "laptop".into();
+        for name in ["server", "phone"] {
+            store.peers.push(Peer {
+                name: BodyId(name.into()),
+                owner_pk: vec![1; 32],
+                addr: None,
+            });
+        }
+        // Owner has already granted `true` to the server only.
+        store
+            .update(|s| crate::grant::add(s, "true", &["server".into()], false, None, None))
+            .unwrap();
+
+        // A request from phone for the same tool must NOT be approvable in a way
+        // that drops the server-only scope: it is refused, grant untouched.
+        let req = store
+            .update(|s| upsert(s, BodyId("phone".into()), "true"))
+            .unwrap();
+        let before = store.grants.clone();
+        let err = store
+            .update(|s| decide(s, &req.id, Decision::from_action("once")?))
+            .unwrap_err();
+        assert!(err.to_string().contains("clix add"), "{err}");
+        assert_eq!(store.grants, before);
+        // The request stays pending for the owner to handle explicitly.
+        assert!(store.requests.iter().any(|r| r.id == req.id));
+
+        // Approving a request for a tool with no existing grant still works.
+        let fresh = store
+            .update(|s| upsert(s, BodyId("phone".into()), "false"))
+            .unwrap();
+        store
+            .update(|s| decide(s, &fresh.id, Decision::from_action("once")?))
+            .unwrap();
+        assert_eq!(store.grants.len(), 2);
+    }
 
     #[test]
     fn native_decisions_keep_their_scope_and_failed_persistence_keeps_the_request() {
@@ -221,14 +277,19 @@ mod tests {
             store.grants[0].allow_from,
             Some(vec![BodyId("server".into())])
         );
+        // A second approval for the same tool that would change the grant is
+        // refused rather than silently replacing it; the first grant stands.
         let req = store
             .update(|s| upsert(s, BodyId("server".into()), "true"))
             .unwrap();
-        store
+        assert!(store
             .update(|s| decide(s, &req.id, Decision::from_action("allow")?))
-            .unwrap();
-        assert!(!store.grants[0].once);
-        assert_eq!(store.grants[0].allow_from, None);
+            .is_err());
+        assert!(store.grants[0].once);
+        assert_eq!(
+            store.grants[0].allow_from,
+            Some(vec![BodyId("server".into())])
+        );
         let req = store
             .update(|s| upsert(s, BodyId("server".into()), "false"))
             .unwrap();
@@ -240,7 +301,7 @@ mod tests {
             .update(|s| decide(s, &req.id, Decision::from_action("once")?))
             .is_err());
         assert_eq!(store.grants, before);
-        assert_eq!(store.requests[0].id, req.id);
+        assert!(store.requests.iter().any(|r| r.id == req.id));
         assert!(store.ensure_writable().is_err());
     }
 }
