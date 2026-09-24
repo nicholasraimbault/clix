@@ -168,7 +168,7 @@ fn pending_items(store: &Store) -> Vec<MenuItem<ClixTray>> {
         .map(|r| {
             let submenu = [
                 ("once", "Allow once"),
-                ("allow", "Allow for all paired machines"),
+                ("allow", "Allow this machine"),
                 ("deny", "Deny"),
             ]
             .into_iter()

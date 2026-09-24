@@ -123,7 +123,6 @@ pub fn pending(store: &Store) -> &[Request] {
 pub(crate) enum Scope {
     Requester,
     Bodies(Vec<String>),
-    AllPaired,
 }
 
 #[derive(Clone)]
@@ -147,8 +146,10 @@ impl Decision {
                 until: None,
                 schedule: None,
             }),
+            // "Allow" persists but is scoped to the requesting machine, not all
+            // paired machines. Broad grants are explicit: clix add --all.
             "allow" => Ok(Self::Allow {
-                scope: Scope::AllPaired,
+                scope: Scope::Requester,
                 once: false,
                 until: None,
                 schedule: None,
@@ -183,7 +184,6 @@ pub(crate) fn decide(store: &mut Store, id: &str, decision: Decision) -> Result<
                         "approval body list must not be empty".into(),
                     ))
                 }
-                Scope::AllPaired => Vec::new(),
             };
             let prospective = grant::build(store, &req.tool, &allow, once, until, schedule)?;
             // Approving a request must not silently replace a *different*
@@ -214,6 +214,33 @@ pub(crate) fn decide(store: &mut Store, id: &str, decision: Decision) -> Result<
 mod tests {
     use super::*;
     use crate::types::Peer;
+
+    #[test]
+    fn native_allow_grants_only_the_requesting_machine_persistently() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path()).unwrap();
+        store.body_name = "laptop".into();
+        for name in ["server", "phone"] {
+            store.peers.push(Peer {
+                name: BodyId(name.into()),
+                owner_pk: vec![1; 32],
+                addr: None,
+            });
+        }
+        let req = store
+            .update(|s| upsert(s, BodyId("server".into()), "true"))
+            .unwrap();
+        store
+            .update(|s| decide(s, &req.id, Decision::from_action("allow")?))
+            .unwrap();
+        // "Allow" persists (not once) but is scoped to the requester, not all
+        // paired machines: phone is not granted.
+        assert!(!store.grants[0].once);
+        assert_eq!(
+            store.grants[0].allow_from,
+            Some(vec![BodyId("server".into())])
+        );
+    }
 
     #[test]
     fn approval_never_silently_replaces_a_differing_grant() {

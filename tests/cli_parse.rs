@@ -56,8 +56,8 @@ fn exec_is_body_then_argv() {
 }
 
 #[test]
-fn add_is_reserved() {
-    let cmd = parse_argv(&["clix".into(), "add".into(), "adb".into()]).unwrap();
+fn add_with_explicit_scope_is_not_once_by_default() {
+    let cmd = parse_argv(&["clix".into(), "add".into(), "adb".into(), "--all".into()]).unwrap();
     match cmd {
         Cmd::Add { tool, once, .. } => {
             assert_eq!(tool, "adb");
@@ -130,6 +130,7 @@ fn weekdays_is_a_bool_on_add() {
         "clix".into(),
         "add".into(),
         "adb".into(),
+        "--all".into(),
         "--weekdays".into(),
         "--from".into(),
         "9am".into(),
@@ -160,6 +161,7 @@ fn days_dates_from_to() {
         "clix".into(),
         "add".into(),
         "adb".into(),
+        "--all".into(),
         "--days".into(),
         "mon,wed,fri".into(),
         "--dates".into(),
@@ -195,6 +197,7 @@ fn until_is_local_today_or_tomorrow() {
         "clix".into(),
         "add".into(),
         "adb".into(),
+        "--all".into(),
         "--until".into(),
         "5pm".into(),
     ])
@@ -216,6 +219,7 @@ fn days_and_weekdays_conflict() {
         "clix".into(),
         "add".into(),
         "adb".into(),
+        "--all".into(),
         "--days".into(),
         "mon".into(),
         "--weekdays".into(),
@@ -234,7 +238,13 @@ fn once_rejects_repeating_schedule() {
         vec!["--dates".into(), "1".into()],
         vec!["--weekdays".into()],
     ] {
-        let mut argv = vec!["clix".into(), "add".into(), "adb".into(), "--once".into()];
+        let mut argv = vec![
+            "clix".into(),
+            "add".into(),
+            "adb".into(),
+            "--all".into(),
+            "--once".into(),
+        ];
         argv.extend(extra);
         let err = parse_argv(&argv).unwrap_err();
         match err {
@@ -445,6 +455,7 @@ fn bad_weekday_is_usage() {
         "clix".into(),
         "add".into(),
         "adb".into(),
+        "--all".into(),
         "--days".into(),
         "monday".into(),
     ])
@@ -461,6 +472,7 @@ fn bad_date_is_usage() {
         "clix".into(),
         "add".into(),
         "adb".into(),
+        "--all".into(),
         "--dates".into(),
         "32".into(),
     ])
@@ -475,5 +487,47 @@ fn bad_date_is_usage() {
 fn owner_decisions_need_an_explicit_request_id() {
     for op in ["allow", "deny"] {
         assert!(parse_argv(&["clix".into(), op.into()]).is_err());
+    }
+}
+
+#[test]
+fn add_requires_explicit_scope() {
+    // clix add <tool> with no --allow/--all/--server no longer grants every
+    // paired machine by default; it must be an error naming the choice.
+    let err = parse_argv(&["clix".into(), "add".into(), "adb".into()]).unwrap_err();
+    match err {
+        ClixError::Usage(s) => {
+            assert!(s.contains("--allow") && s.contains("--all"), "{s}")
+        }
+        _ => panic!("expected usage error, got {err:?}"),
+    }
+}
+
+#[test]
+fn add_all_grants_every_machine() {
+    let cmd = parse_argv(&["clix".into(), "add".into(), "adb".into(), "--all".into()]).unwrap();
+    match cmd {
+        Cmd::Add { tool, allow, .. } => {
+            assert_eq!(tool, "adb");
+            assert!(allow.is_empty(), "--all means no allow-list: {allow:?}");
+        }
+        _ => panic!("expected add"),
+    }
+}
+
+#[test]
+fn add_all_conflicts_with_an_allow_list() {
+    let err = parse_argv(&[
+        "clix".into(),
+        "add".into(),
+        "adb".into(),
+        "--all".into(),
+        "--allow".into(),
+        "server".into(),
+    ])
+    .unwrap_err();
+    match err {
+        ClixError::Usage(s) => assert!(s.contains("--all"), "{s}"),
+        _ => panic!("expected usage error, got {err:?}"),
     }
 }

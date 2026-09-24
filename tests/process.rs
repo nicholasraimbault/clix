@@ -266,7 +266,7 @@ fn owner_cli_selects_the_inspected_request_and_revokes_deleted_relative_paths() 
         .is_empty());
     let tool = laptop.fixture("revocable", "exit 0");
     let cwd = tool.parent().unwrap();
-    let added = laptop.cli_in(&["add", "./revocable"], Some(cwd));
+    let added = laptop.cli_in(&["add", "./revocable", "--all"], Some(cwd));
     assert!(
         added.status.success(),
         "{}",

@@ -54,8 +54,8 @@ receipts. See [operation and recovery](docs/operations.md).
 **Before pairing:** Clix automatically pins `~/src` on both machines. Pairing and
 each remote execution synchronize that directory in both directions, including
 deletions after a shared baseline. Review its contents first. Conflicts stop
-sync and remote execution; there is no automatic merge. Existing grants without
-`--allow` also apply to newly paired machines. A pin failure after pairing can
+sync and remote execution; there is no automatic merge. An `--all` grant also
+applies to machines paired later. A pin failure after pairing can
 leave the pairing saved; read the error and `clix status` before retrying.
 See the pin limits below.
 
@@ -97,7 +97,9 @@ Clix's own `--no-wait` before `--` when needed.
 
 ## Grants and authority
 
-Without `--allow`, an added tool is available to every paired machine.
+Every grant names its machines: pass `--allow <machine>` (repeatable),
+`--server` (shorthand for `--allow server`), or `--all` for every paired
+machine, including ones paired later. `clix add` with no scope is an error.
 `--once` permits one successful run; `--for 2h` limits the grant's lifetime.
 Revoke a grant on the machine that added it with `clix remove adb`.
 You can also pass its stored executable path, even after that file is deleted.

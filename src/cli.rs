@@ -205,6 +205,8 @@ pub enum RecoveryCommand {
 struct GrantCli {
     #[arg(long = "allow", value_name = "BODY")]
     allow: Vec<String>,
+    #[arg(long = "all")]
+    all: bool,
     #[arg(long = "server")]
     server: bool,
     #[arg(long = "once")]
@@ -256,7 +258,7 @@ pub fn parse_argv(argv: &[String]) -> Result<Cmd> {
         None => Err(ClixError::Usage("usage: clix <command>".into())),
         Some(Commands::Add { tool, grant }) => {
             let tool = tool.ok_or_else(|| ClixError::Usage("usage: clix add <tool>".into()))?;
-            let g = parse_grant_cli(grant, false)?;
+            let g = parse_grant_cli(grant, false, true)?;
             Ok(Cmd::Add {
                 tool,
                 allow: g.allow,
@@ -282,7 +284,7 @@ pub fn parse_argv(argv: &[String]) -> Result<Cmd> {
         Some(Commands::Pin { command }) => Ok(Cmd::Pin(command)),
         Some(Commands::Pending) => Ok(Cmd::Pending),
         Some(Commands::Allow { request_id, grant }) => {
-            let g = parse_grant_cli(grant, true)?;
+            let g = parse_grant_cli(grant, true, false)?;
             Ok(Cmd::Allow {
                 request_id,
                 allow: g.allow,
@@ -338,9 +340,14 @@ struct GrantNarrow {
     weekdays: bool,
 }
 
-fn parse_grant_cli(grant: GrantCli, default_once: bool) -> Result<GrantNarrow> {
+fn parse_grant_cli(
+    grant: GrantCli,
+    default_once: bool,
+    require_scope: bool,
+) -> Result<GrantNarrow> {
     let GrantCli {
         mut allow,
+        all,
         server,
         once,
         for_dur,
@@ -351,6 +358,18 @@ fn parse_grant_cli(grant: GrantCli, default_once: bool) -> Result<GrantNarrow> {
         to,
         weekdays,
     } = grant;
+    if all && (server || !allow.is_empty()) {
+        return Err(ClixError::Usage(
+            "use --all or --allow/--server, not both".into(),
+        ));
+    }
+    // A grant must name its machines. Empty scope no longer defaults to every
+    // paired machine (including ones paired later); require an explicit --all.
+    if require_scope && !all && !server && allow.is_empty() {
+        return Err(ClixError::Usage(
+            "specify --allow <machine> (repeatable), --server, or --all".into(),
+        ));
+    }
     if server {
         allow.push("server".into());
     }
