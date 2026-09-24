@@ -85,9 +85,11 @@ enum Commands {
     },
     Pair {
         phrase: Option<String>,
-        #[arg(long = "name", value_name = "BODY")]
+        #[arg(long = "name", value_name = "MACHINE")]
         name: Option<String>,
     },
+    /// List grants on this machine (alias: grants).
+    #[command(alias = "grants")]
     Hands,
     Remove {
         tool: Option<String>,
@@ -265,7 +267,7 @@ pub fn parse_argv(argv: &[String]) -> Result<Cmd> {
         let parts = &argv[start..];
         if parts.len() < 2 {
             return Err(ClixError::Usage(
-                "usage: clix [--no-wait] -- <body> <cmd>…".into(),
+                "usage: clix [--no-wait] -- <machine> <cmd>…".into(),
             ));
         }
         crate::pair::validate_name(&parts[0])?;
@@ -355,10 +357,10 @@ pub fn parse_argv(argv: &[String]) -> Result<Cmd> {
         }
         Some(Commands::Deny { request_id }) => Ok(Cmd::Deny { request_id }),
         Some(Commands::Request { body, tool }) => {
-            let body =
-                body.ok_or_else(|| ClixError::Usage("usage: clix request <body> <tool>".into()))?;
-            let tool =
-                tool.ok_or_else(|| ClixError::Usage("usage: clix request <body> <tool>".into()))?;
+            let body = body
+                .ok_or_else(|| ClixError::Usage("usage: clix request <machine> <tool>".into()))?;
+            let tool = tool
+                .ok_or_else(|| ClixError::Usage("usage: clix request <machine> <tool>".into()))?;
             Ok(Cmd::Request { body, tool })
         }
         Some(Commands::Daemon) => Ok(Cmd::Daemon),
@@ -367,10 +369,10 @@ pub fn parse_argv(argv: &[String]) -> Result<Cmd> {
         Some(Commands::External(parts)) => {
             let (parts, no_wait) = strip_no_wait(parts, cli.no_wait);
             if parts.is_empty() {
-                return Err(ClixError::Usage("usage: clix <body> <cmd>…".into()));
+                return Err(ClixError::Usage("usage: clix <machine> <cmd>…".into()));
             }
             if parts.len() < 2 {
-                return Err(ClixError::Usage("usage: clix <body> <cmd>…".into()));
+                return Err(ClixError::Usage("usage: clix <machine> <cmd>…".into()));
             }
             let body = parts[0].clone();
             let argv = parts[1..].to_vec();

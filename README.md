@@ -18,9 +18,12 @@ clix laptop adb devices
 ```
 
 That runs the laptop's `adb` and returns its output to your normal shell.
-The command stays on the machine you named. Clix calls a tool grant a **hand**;
-you add or revoke it on the machine that has the tool. Nothing granted means
-nothing runs through Clix.
+The command stays on the machine you named. You add or revoke a **grant** on the
+machine that has the tool. Nothing granted means nothing runs through Clix.
+
+Two terms from the design appear in a few command names: a **hand** is a grant
+(`clix hands`, also `clix grants`), and a **body** is a paired machine. This
+README says *grant* and *machine* everywhere else.
 
 **Experimental, Linux today.** Tested on a real CachyOS (Arch-derived) laptop
 and Debian 13.6 server, including denial, single-use grants and delivery after
@@ -79,8 +82,8 @@ clix status
 Then grant the tool locally on the laptop:
 
 ```sh
-clix add adb --allow server
-clix hands
+clix add adb --allow server --only devices
+clix grants
 ```
 
 From the server:

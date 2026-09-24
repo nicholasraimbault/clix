@@ -141,7 +141,7 @@ impl ksni::Tray for ClixTray {
             }
             .into(),
             SubMenu {
-                label: "Hands".into(),
+                label: "Grants".into(),
                 enabled: !hands.is_empty(),
                 submenu: hands,
                 ..Default::default()

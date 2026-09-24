@@ -279,7 +279,7 @@ async fn serve_conn(
             json!({"ok":false,"kind":"capacity","error":reason})
         }
         Err(ClixError::Unreachable) => {
-            json!({"ok":false,"kind":"unreachable","error":"body is unreachable"})
+            json!({"ok":false,"kind":"unreachable","error":"machine is unreachable"})
         }
         Err(ClixError::PinConflict { path, a, b }) => {
             json!({"ok":false,"kind":"pin_conflict","path":path,"a":a,"b":b})

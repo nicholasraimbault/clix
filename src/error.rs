@@ -13,7 +13,7 @@ pub enum ClixError {
     GrantBusy { tool: String },
     #[error("command exited {0}")]
     ToolExit(i32),
-    #[error("body is unreachable")]
+    #[error("machine is unreachable")]
     Unreachable,
     #[error("{0}")]
     Capacity(String),

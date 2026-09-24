@@ -637,3 +637,11 @@ fn at_body_requires_a_valid_name_and_a_tool() {
         assert!(parse_argv(&argv_in).is_err(), "{args:?} should be rejected");
     }
 }
+
+#[test]
+fn grants_is_an_alias_for_hands() {
+    for word in ["grants", "hands"] {
+        let cmd = parse_argv(&["clix".into(), word.into()]).unwrap();
+        assert_eq!(cmd, Cmd::Hands, "{word}");
+    }
+}

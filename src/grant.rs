@@ -114,7 +114,7 @@ pub(crate) fn build(
     let binary = resolve_tool(tool)?;
     for name in allow {
         if *name != store.body_name && !store.peers.iter().any(|p| p.name.0 == *name) {
-            return Err(ClixError::Usage(format!("{name} is not a paired body")));
+            return Err(ClixError::Usage(format!("{name} is not a paired machine")));
         }
     }
     let allow_from = if allow.is_empty() {

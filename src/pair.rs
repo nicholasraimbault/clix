@@ -107,7 +107,7 @@ pub(crate) fn validate_name(name: &str) -> Result<()> {
             .bytes()
             .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
     {
-        return Err(ClixError::Usage("body name must start with a letter or digit and contain 1–63 letters, digits, hyphens or underscores".into()));
+        return Err(ClixError::Usage("machine name must start with a letter or digit and contain 1–63 letters, digits, hyphens or underscores".into()));
     }
     Ok(())
 }

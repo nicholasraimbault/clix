@@ -92,7 +92,9 @@ pub(crate) async fn deliver(
 pub fn upsert(store: &mut Store, from: BodyId, tool: &str) -> Result<Request> {
     crate::limits::tool(tool)?;
     if tool.is_empty() {
-        return Err(ClixError::Usage("usage: clix request <body> <tool>".into()));
+        return Err(ClixError::Usage(
+            "usage: clix request <machine> <tool>".into(),
+        ));
     }
     let req = if let Some(existing) = store
         .requests

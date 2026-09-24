@@ -317,7 +317,7 @@ async fn rpc_exec<W: AsyncWriteExt + Unpin>(
     let argv: Vec<String> =
         serde_json::from_value(req.get("argv").cloned().unwrap_or(Value::Null))?;
     if argv.is_empty() {
-        return Err(ClixError::Usage("usage: clix <body> <cmd>…".into()));
+        return Err(ClixError::Usage("usage: clix <machine> <cmd>…".into()));
     }
     let no_wait = req.get("no_wait").and_then(Value::as_bool).unwrap_or(false);
     let _waiter = if no_wait {
@@ -328,7 +328,7 @@ async fn rpc_exec<W: AsyncWriteExt + Unpin>(
     let this = lock_store(store).body_name.clone();
     let id = {
         if body != this && !lock_store(store).peers.iter().any(|p| p.name.0 == body) {
-            return Err(ClixError::Usage(format!("{body} is not a paired body")));
+            return Err(ClixError::Usage(format!("{body} is not a paired machine")));
         }
         job::append(
             store,
@@ -373,7 +373,7 @@ async fn rpc_request(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: &Value) 
         .get("tool")
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| ClixError::Usage("usage: clix request <body> <tool>".into()))?;
+        .ok_or_else(|| ClixError::Usage("usage: clix request <machine> <tool>".into()))?;
     let body = req.get("body").and_then(Value::as_str).unwrap_or("");
     crate::limits::tool(tool)?;
     let (this, dest) = {
@@ -386,7 +386,7 @@ async fn rpc_request(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: &Value) 
         let r = store.update(|s| request::upsert(s, BodyId(this), tool))?;
         return Ok(json!({"ok": true, "request": r}));
     }
-    let peer = dest.ok_or_else(|| ClixError::Usage(format!("{body} is not a paired body")))?;
+    let peer = dest.ok_or_else(|| ClixError::Usage(format!("{body} is not a paired machine")))?;
     let id = job::new_id()?;
     lock_store(store).update(|s| {
         s.outbound_requests.push(crate::types::OutboundRequest {

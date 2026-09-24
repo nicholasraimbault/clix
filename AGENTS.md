@@ -8,10 +8,10 @@ when relevant.
 
 ## Values
 
-- The owner is the authority. Grants are added on that box, by the owner.
-- A hand is a granted tool, not a login and not a leftover session.
+- The owner is the authority. Grants are added on that machine, by the owner.
+- A grant (a "hand") is a granted tool, not a login and not a leftover session.
 - Fail closed. Nothing added means nothing runs through Clix.
-- Location stays honest. Named body, or this machine.
+- Location stays honest. A named machine (a "body"), or this machine.
 - Owner operations remain available with no agent. Agents use the same
   commands, attributable, through the same grants.
 - Build clear, coherent systems grounded in observed reality.
