@@ -445,8 +445,6 @@ async fn receiver_rejects_a_pin_put_that_diverges_from_its_baseline() {
         .unwrap();
     let current = listing["files"]["notes.txt"].clone();
     assert!(current.is_object(), "listing: {listing}");
-    let overwrite = fs::read("/usr/bin/true").ok();
-    let _ = overwrite;
     let put = server
         .mesh_raw(
             laptop.mesh_addr(),
@@ -483,14 +481,16 @@ fn hex_of(bytes: &[u8]) -> String {
 }
 
 #[tokio::test]
-async fn pin_excludes_git_hooks_from_sync_and_incoming_writes() {
+async fn pin_excludes_dot_git_from_sync_and_incoming_writes() {
     let (laptop, server) = paired_pinned("laptop", "server").await;
-    // An existing hook on the laptop is not replicated by a sync.
+    // Existing .git contents (hooks and config, both code-execution vectors on
+    // ordinary git operations) are not replicated by a sync.
     write_rel(
         &laptop.pin_dir(),
         ".git/hooks/pre-commit",
         "#!/bin/sh\ntrue\n",
     );
+    write_rel(&laptop.pin_dir(), ".git/config", "[core]\n");
     write_rel(&laptop.pin_dir(), "keep.txt", "ok\n");
     server
         .rpc(json!({"op": "pin_sync", "body": "laptop"}))
@@ -504,25 +504,65 @@ async fn pin_excludes_git_hooks_from_sync_and_incoming_writes() {
         !server.pin_dir().join(".git/hooks/pre-commit").exists(),
         "git hooks must not replicate through pin"
     );
-    // A peer cannot plant a hook by writing directly to a .git/hooks path.
-    let put = server
-        .mesh_raw(
-            laptop.mesh_addr(),
-            json!({
-                "op": "pin_put",
-                "path": ".git/hooks/pre-commit",
-                "expected": null,
-                "new": {"hash": sha256_hex(b"evil\n"), "mode": 493},
-                "content": hex_of(b"evil\n"),
-            }),
-        )
-        .await;
-    assert!(put.is_err(), "planting a git hook must be refused: {put:?}");
-    // The owner's own hook is untouched; the peer's content was not written.
+    assert!(
+        !server.pin_dir().join(".git/config").exists(),
+        ".git/config must not replicate through pin"
+    );
+    // A peer cannot write anything under .git directly, hook or config.
+    for path in [".git/hooks/pre-commit", ".git/config"] {
+        let put = server
+            .mesh_raw(
+                laptop.mesh_addr(),
+                json!({
+                    "op": "pin_put",
+                    "path": path,
+                    "expected": null,
+                    "new": {"hash": sha256_hex(b"evil\n"), "mode": 493},
+                    "content": hex_of(b"evil\n"),
+                }),
+            )
+            .await;
+        assert!(put.is_err(), "writing {path} must be refused: {put:?}");
+    }
+    // The owner's own hook is untouched.
     assert_eq!(
         fs::read_to_string(laptop.pin_dir().join(".git/hooks/pre-commit")).unwrap(),
         "#!/bin/sh\ntrue\n"
     );
+}
+
+#[test]
+fn stale_git_entries_in_a_saved_baseline_do_not_wedge_sync() {
+    // A baseline written before .git was excluded (git init leaves
+    // .git/hooks/*.sample) must not permanently break sync with "invalid pin
+    // path"; the excluded entries are skipped and the baseline self-heals.
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    write_rel(a.path(), "keep.txt", "v1");
+    let (ld, laptop) = store_named("laptop");
+    let (sd, server) = store_named("server");
+    let pk_hex = |sk: &[u8]| -> String {
+        ed25519_dalek::SigningKey::from_bytes(sk.try_into().unwrap())
+            .verifying_key()
+            .to_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    };
+    let stale = json!({".git/hooks/pre-commit.sample": {"hash": "0".repeat(64), "mode": 493}});
+    // Inject a pre-upgrade baseline, on disk, that still lists an excluded path.
+    for (dir, peer_sk) in [(&ld, &server.owner_sk), (&sd, &laptop.owner_sk)] {
+        let path = dir.path().join("state.json");
+        let mut state: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        state["pin_index"]["peers"][pk_hex(peer_sk)] = stale.clone();
+        fs::write(&path, serde_json::to_vec(&state).unwrap()).unwrap();
+    }
+    let mut laptop = Store::open(ld.path()).unwrap();
+    let mut server = Store::open(sd.path()).unwrap();
+    // Sync succeeds and copies the ordinary file, ignoring the stale entry.
+    clix::pin_sync(&mut laptop, a.path(), &mut server, b.path()).unwrap();
+    assert_eq!(fs::read_to_string(b.path().join("keep.txt")).unwrap(), "v1");
 }
 
 #[tokio::test]

@@ -59,10 +59,12 @@ machine. With pin on for both machines, pairing and `clix pin sync` synchronize
 that directory in both directions, including deletions after a shared baseline.
 Review its contents first. A conflict stops the sync with a named path and no
 automatic merge; it does not block remote execution. While pin is off, peers
-cannot list, read or write that machine's `~/src`. Pin never syncs `.git/hooks`. An `--all` grant also
-applies to machines paired later. A pin failure after pairing can
-leave the pairing saved; read the error and `clix status` before retrying.
-See the pin limits below.
+cannot list, read or write that machine's `~/src`. Pin never syncs anything
+inside a `.git` directory. Turning pin on trusts the paired machines, and any
+agent using their identity, with write access to `~/src`; displaced versions
+are kept in `~/src/.clix-recovery`. A pin failure after pairing can leave the
+pairing saved; read the error and `clix status` before retrying. See the pin
+limits below.
 
 For example, first confirm `adb devices` works locally on the laptop. To use
 that installed tool from a server, start on the laptop:

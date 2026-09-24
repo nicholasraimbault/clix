@@ -103,12 +103,14 @@ fn valid_path(rel: &str) -> Result<()> {
     Ok(())
 }
 
-/// Paths pin never syncs or accepts, beyond `.clix-recovery`. Git hooks are
-/// executable files that run on ordinary git operations, so a peer must not be
-/// able to place one through pin, and local hooks are not replicated.
+/// Paths pin never syncs or accepts, beyond `.clix-recovery`: anything inside a
+/// `.git` directory. Git runs code from repository metadata on ordinary
+/// operations (hooks, and `.git/config` settings such as `core.hooksPath`,
+/// `core.fsmonitor` or `core.sshCommand`), and that metadata is machine-local,
+/// so it is neither replicated nor accepted from a peer. Working-tree files in a
+/// repository still sync.
 fn excluded(rel: &str) -> bool {
-    let parts: Vec<&str> = rel.split('/').collect();
-    parts.windows(2).any(|w| w == [".git", "hooks"])
+    rel.split('/').any(|part| part == ".git")
 }
 
 struct Tree {
@@ -580,11 +582,20 @@ fn plan(
     Ok((changes, merged))
 }
 fn baseline(s: &Store, peer: &[u8]) -> Manifest {
-    s.pin_index
-        .peers
-        .get(&key(peer))
-        .cloned()
-        .unwrap_or_default()
+    without_excluded(
+        s.pin_index
+            .peers
+            .get(&key(peer))
+            .cloned()
+            .unwrap_or_default(),
+    )
+}
+/// Drop excluded paths from a manifest. Baselines recorded before an exclusion,
+/// and listings from an older peer, may still carry them; every comparison and
+/// plan works on the cleaned manifest, so they neither conflict nor wedge sync.
+fn without_excluded(mut manifest: Manifest) -> Manifest {
+    manifest.retain(|path, _| !excluded(path));
+    manifest
 }
 fn common_baseline(
     a: Manifest,
@@ -705,10 +716,9 @@ pub async fn sync_with_peer(
         )
     };
     let (tree, local) = open_scan(root.clone()).await?;
-    let remote: Listing = serde_json::from_value(
+    let remote = validate_listing(serde_json::from_value(
         crate::mesh::call(addr, sk, &peer.owner_pk, json!({"op":"pin_list"})).await?,
-    )?;
-    validate_listing(&remote)?;
+    )?)?;
     let base = common_baseline(
         baseline(&lock(store), &peer.owner_pk),
         remote.baseline,
@@ -852,11 +862,14 @@ pub(crate) fn rpc_put(s: &Store, peer: &Peer, req: &Value) -> Result<Value> {
     }
     let expected: Option<Fingerprint> = serde_json::from_value(req["expected"].clone())?;
     let new: Option<Fingerprint> = serde_json::from_value(req["new"].clone())?;
-    // Enforce the honest-conflict rule on the receiver, not only in the
-    // initiator's planner: a write is accepted only when the receiver's own
-    // recorded baseline for this peer matches what the caller expected. If the
-    // receiver has a local edit since the last sync (baseline != current), a
-    // peer cannot overwrite it by reading and echoing the current fingerprint.
+    // Check the write against the receiver's own recorded baseline for this
+    // peer, not only the caller's claim: a peer that reads the receiver's
+    // current fingerprint and echoes it as `expected` cannot overwrite a local
+    // edit made since the last sync. Limit: pin_commit records the receiver's
+    // current tree as the new baseline without binding it to this session's
+    // puts, so a peer that deliberately deviates from the sync protocol
+    // (commit, then put) can still replace a file; the displaced version is
+    // retained in .clix-recovery. Closing that needs session-bound commits.
     valid_path(&path)?;
     if baseline(s, &peer.owner_pk).get(&path) != expected.as_ref() {
         return Err(conflict(
@@ -1744,20 +1757,25 @@ async fn peer_listing(peer: &Peer, sk: &[u8]) -> Result<Listing> {
         json!({"op":"pin_list"}),
     )
     .await?;
-    let list: Listing = serde_json::from_value(value)?;
-    validate_listing(&list)?;
-    Ok(list)
+    validate_listing(serde_json::from_value(value)?)
 }
-fn validate_listing(list: &Listing) -> Result<()> {
+/// Bound and validate a peer's listing, returning it without excluded paths.
+fn validate_listing(list: Listing) -> Result<Listing> {
     if list.files.len() > MAX_PIN_ENTRIES || list.baseline.len() > MAX_PIN_ENTRIES {
         return Err(ClixError::Protocol(
             "peer pin listing exceeds 4096 entries".into(),
         ));
     }
+    // An older peer, or a baseline recorded before an exclusion, may list an
+    // excluded path. Drop those instead of rejecting the whole listing.
+    let list = Listing {
+        files: without_excluded(list.files),
+        baseline: without_excluded(list.baseline),
+    };
     for path in list.files.keys().chain(list.baseline.keys()) {
         valid_path(path)?;
     }
-    Ok(())
+    Ok(list)
 }
 pub async fn inspect_peer_conflicts(
     store: &Arc<Mutex<Store>>,

@@ -342,6 +342,11 @@ pub fn parse_argv(argv: &[String]) -> Result<Cmd> {
                     "limit arguments with clix add --only, not when approving a request".into(),
                 ));
             }
+            if g.all {
+                return Err(ClixError::Usage(
+                    "approving a request grants the requester or an --allow list; grant every machine with clix add --all".into(),
+                ));
+            }
             Ok(Cmd::Allow {
                 request_id,
                 allow: g.allow,
@@ -396,6 +401,7 @@ struct GrantNarrow {
     to: Option<String>,
     weekdays: bool,
     args: Option<Vec<Vec<String>>>,
+    all: bool,
 }
 
 fn parse_grant_cli(
@@ -476,6 +482,7 @@ fn parse_grant_cli(
         to,
         weekdays,
         args,
+        all,
     })
 }
 

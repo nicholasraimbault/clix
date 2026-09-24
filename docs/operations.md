@@ -63,10 +63,18 @@ clix pin sync BODY
 clix pin conflicts BODY
 ```
 
-The receiver enforces the same honest-conflict rule as the initiator: a peer's
-write is accepted only when this machine's recorded baseline matches what the
-peer expected, so a local edit made since the last sync cannot be overwritten.
-Pin never synchronizes `.git/hooks`.
+A normal sync never overwrites a path both machines changed since the last
+sync; it stops and names it. The receiver also checks each incoming write
+against its own recorded baseline, so a peer cannot overwrite a local edit by
+echoing this machine's current version. That check is not a complete defense
+against a paired machine that deliberately deviates from the sync protocol: it
+can record a new baseline and then replace a file. The displaced version is
+kept in `.clix-recovery`, but turning pin on means trusting the paired machines
+(and any agent using their identity) with write access to `~/src`.
+
+Pin never synchronizes anything inside a `.git` directory. Git runs code from
+repository metadata such as hooks and `.git/config`, and that metadata is
+machine-local; working-tree files in a repository still sync.
 
 A failed sync exits nonzero. Conflict inspection reads the named peer now;
 an unreachable peer is an error, not a cached decision. To adopt the inspected

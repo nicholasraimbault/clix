@@ -645,3 +645,21 @@ fn grants_is_an_alias_for_hands() {
         assert_eq!(cmd, Cmd::Hands, "{word}");
     }
 }
+
+#[test]
+fn allow_rejects_all_rather_than_silently_granting_only_the_requester() {
+    // Approving a request grants the requesting machine (or --allow list).
+    // --all would silently fall back to the requester, so it is refused and
+    // broad grants go through clix add --all.
+    let err = parse_argv(&[
+        "clix".into(),
+        "allow".into(),
+        "some-request".into(),
+        "--all".into(),
+    ])
+    .unwrap_err();
+    match err {
+        ClixError::Usage(s) => assert!(s.contains("clix add"), "{s}"),
+        other => panic!("expected usage, got {other}"),
+    }
+}
