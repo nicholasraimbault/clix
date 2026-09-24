@@ -47,6 +47,7 @@ fn grant_roundtrip() {
     let mut s = Store::open(dir.path()).unwrap();
     s.grants.push(Grant {
         reservation: None,
+        args: None,
         tool: "adb".into(),
         binary: PathBuf::from("/usr/bin/adb"),
         allow_from: None,
@@ -68,6 +69,7 @@ fn grant_schedule_roundtrip() {
     let mut s = Store::open(dir.path()).unwrap();
     s.grants.push(Grant {
         reservation: None,
+        args: None,
         tool: "adb".into(),
         binary: PathBuf::from("/usr/bin/adb"),
         allow_from: Some(vec![BodyId("server".into())]),
@@ -230,6 +232,7 @@ fn store_under_clix_home_writes_state_json() {
     let mut s = Store::open(&state_dir().unwrap()).unwrap();
     s.grants.push(Grant {
         reservation: None,
+        args: None,
         tool: "adb".into(),
         binary: PathBuf::from("/usr/bin/adb"),
         allow_from: None,
@@ -353,4 +356,39 @@ fn secrets_are_private_and_failed_persistence_stops_further_mutations() {
             Ok(())
         })
         .is_err());
+}
+
+#[test]
+fn saved_state_carries_a_format_version_older_binaries_refuse() {
+    // Grants can now carry an argument allowlist; a binary that predates it
+    // would silently drop the list and run the tool unconstrained. Saving must
+    // stamp a format version such binaries refuse, and this binary must refuse
+    // a state from a still-newer one rather than misread it.
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = Store::open(dir.path()).unwrap();
+    s.update(|_| Ok(())).unwrap();
+    let raw: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.path().join("state.json")).unwrap()).unwrap();
+    assert_eq!(raw["format_version"], 2, "{raw}");
+
+    // A state written by the previous binary (version 1) still opens here.
+    let mut v1 = raw.clone();
+    v1["format_version"] = serde_json::json!(1);
+    std::fs::write(
+        dir.path().join("state.json"),
+        serde_json::to_vec(&v1).unwrap(),
+    )
+    .unwrap();
+    Store::open(dir.path()).expect("version 1 state must still open");
+
+    // A state from a newer binary is refused, preserved, not misread.
+    let mut v3 = raw;
+    v3["format_version"] = serde_json::json!(3);
+    std::fs::write(
+        dir.path().join("state.json"),
+        serde_json::to_vec(&v3).unwrap(),
+    )
+    .unwrap();
+    let err = Store::open(dir.path()).unwrap_err().to_string();
+    assert!(err.contains("newer Clix"), "{err}");
 }

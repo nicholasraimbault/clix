@@ -185,7 +185,7 @@ pub(crate) fn decide(store: &mut Store, id: &str, decision: Decision) -> Result<
                     ))
                 }
             };
-            let prospective = grant::build(store, &req.tool, &allow, once, until, schedule)?;
+            let prospective = grant::build(store, &req.tool, &allow, once, until, schedule, None)?;
             // Approving a request must not silently replace a *different*
             // existing grant for the same tool (dropping its allow-list, expiry
             // or schedule, or revoking another machine). The owner changes an

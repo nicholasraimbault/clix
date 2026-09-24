@@ -31,6 +31,12 @@ pub struct Grant {
     /// A successful run consumes this grant. Interrupted runs retain the reservation.
     #[serde(default)]
     pub reservation: Option<String>,
+    /// Optional argument allowlist on this one grant object: each entry is an
+    /// exact `argv[1..]` that may run. `None` leaves arguments unconstrained.
+    /// An older binary would silently drop this field and run unconstrained,
+    /// which is why saving a store bumps `format_version` so it refuses instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub args: Option<Vec<Vec<String>>>,
 }
 
 /// Repeating window on this box's local clock.

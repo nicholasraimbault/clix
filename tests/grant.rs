@@ -375,3 +375,51 @@ fn describe_shows_scope_time_and_schedule() {
     let sched = clix::describe_grant(&s.grants[0]);
     assert!(sched.contains("schedule"), "{sched}");
 }
+
+#[test]
+fn argument_allowlist_matches_exact_argument_vectors_only() {
+    let mut s = empty_store();
+    let only = vec![vec!["devices".to_string()], vec![]];
+    clix::add_with_args(
+        &mut s,
+        "true",
+        &["server".into()],
+        false,
+        None,
+        None,
+        Some(only),
+    )
+    .unwrap();
+    let g = &s.grants[0];
+    let argv = |args: &[&str]| -> Vec<String> {
+        std::iter::once("true")
+            .chain(args.iter().copied())
+            .map(String::from)
+            .collect()
+    };
+    // Exactly the listed argument vectors are allowed, including none at all.
+    assert!(clix::check_args(g, &argv(&["devices"])).is_ok());
+    assert!(clix::check_args(g, &argv(&[])).is_ok());
+    // Anything else is refused: other subcommands, extra trailing arguments,
+    // and options placed before the allowed one.
+    for bad in [
+        vec!["shell"],
+        vec!["devices", "-l"],
+        vec!["-H", "evil", "devices"],
+        vec!["pull", "/etc/shadow", "."],
+    ] {
+        let e = clix::check_args(g, &argv(&bad)).unwrap_err();
+        assert!(e.to_string().contains("argument"), "{bad:?}: {e}");
+    }
+}
+
+#[test]
+fn grant_without_an_allowlist_keeps_arguments_unconstrained() {
+    let mut s = empty_store();
+    add(&mut s, "true", &["server".into()], false, None, None).unwrap();
+    let argv: Vec<String> = ["true", "anything", "--at", "all"]
+        .into_iter()
+        .map(String::from)
+        .collect();
+    assert!(clix::check_args(&s.grants[0], &argv).is_ok());
+}

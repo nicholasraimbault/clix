@@ -103,6 +103,11 @@ Every grant names its machines: pass `--allow <machine>` (repeatable),
 `--server` (shorthand for `--allow server`), or `--all` for every paired
 machine, including ones paired later. `clix add` with no scope is an error.
 `--once` permits one successful run; `--for 2h` limits the grant's lifetime.
+`--only ARGS` limits a grant to that exact argument list (repeatable; each value
+is split on spaces; `--only ""` allows no arguments). For example,
+`clix add adb --allow server --only devices` permits `adb devices` and nothing
+else — not `adb shell`, `adb pull …`, or extra options. Without `--only`, the
+granted tool accepts any arguments, with all of that tool's capabilities.
 Revoke a grant on the machine that added it with `clix remove adb`.
 You can also pass its stored executable path, even after that file is deleted.
 A different executable with the same basename is not a matching path.

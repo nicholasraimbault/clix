@@ -531,3 +531,57 @@ fn add_all_conflicts_with_an_allow_list() {
         _ => panic!("expected usage error, got {err:?}"),
     }
 }
+
+#[test]
+fn add_only_builds_exact_argument_vectors() {
+    let cmd = parse_argv(&[
+        "clix".into(),
+        "add".into(),
+        "adb".into(),
+        "--allow".into(),
+        "server".into(),
+        "--only".into(),
+        "devices".into(),
+        "--only".into(),
+        "devices -l".into(),
+        "--only".into(),
+        "".into(),
+    ])
+    .unwrap();
+    match cmd {
+        Cmd::Add { args, .. } => assert_eq!(
+            args,
+            Some(vec![
+                vec!["devices".to_string()],
+                vec!["devices".to_string(), "-l".to_string()],
+                vec![],
+            ])
+        ),
+        _ => panic!("expected add"),
+    }
+}
+
+#[test]
+fn add_without_only_leaves_arguments_unconstrained() {
+    let cmd = parse_argv(&["clix".into(), "add".into(), "adb".into(), "--all".into()]).unwrap();
+    match cmd {
+        Cmd::Add { args, .. } => assert_eq!(args, None),
+        _ => panic!("expected add"),
+    }
+}
+
+#[test]
+fn allow_rejects_argument_limits() {
+    let err = parse_argv(&[
+        "clix".into(),
+        "allow".into(),
+        "some-request".into(),
+        "--only".into(),
+        "devices".into(),
+    ])
+    .unwrap_err();
+    match err {
+        ClixError::Usage(s) => assert!(s.contains("clix add"), "{s}"),
+        other => panic!("expected usage, got {other}"),
+    }
+}

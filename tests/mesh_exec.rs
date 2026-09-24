@@ -169,3 +169,48 @@ async fn unknown_peer_is_dropped() {
         .unwrap()
         .is_empty());
 }
+
+#[tokio::test]
+async fn argument_allowlist_is_enforced_on_the_runner() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let marker = dir.path().join("ran");
+    let script = dir.path().join("limited");
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\n",
+            marker.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let (laptop, server) = paired("laptop", "server").await;
+    laptop
+        .rpc(json!({"op":"add","tool":script,"allow":["server"],"args":[["ok"]]}))
+        .await
+        .unwrap();
+    // The one allowed argument vector runs.
+    let allowed = server
+        .rpc(json!({"op":"exec","body":"laptop","argv":["limited","ok"]}))
+        .await
+        .unwrap();
+    assert_eq!(allowed["status"], "done", "{allowed}");
+    // Any other vector is denied on the runner and never executes.
+    for argv in [
+        json!(["limited", "evil"]),
+        json!(["limited", "ok", "--extra"]),
+        json!(["limited"]),
+    ] {
+        let denied = server
+            .rpc(json!({"op":"exec","body":"laptop","argv":argv}))
+            .await
+            .unwrap();
+        assert_eq!(denied["status"], "denied", "{argv}: {denied}");
+        assert!(
+            denied["reason"].as_str().unwrap().contains("argument"),
+            "{denied}"
+        );
+    }
+    assert_eq!(std::fs::read_to_string(&marker).unwrap(), "ok\n");
+}

@@ -6,6 +6,7 @@ use clix::{run_granted, Grant};
 fn runs_binary_not_shell() {
     let g = Grant {
         reservation: None,
+        args: None,
         tool: "true".into(),
         binary: PathBuf::from("/usr/bin/true"),
         allow_from: None,
@@ -21,6 +22,7 @@ fn runs_binary_not_shell() {
 fn rejects_argv0_mismatch() {
     let g = Grant {
         reservation: None,
+        args: None,
         tool: "true".into(),
         binary: PathBuf::from("/usr/bin/true"),
         allow_from: None,

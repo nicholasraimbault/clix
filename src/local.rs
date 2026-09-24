@@ -255,6 +255,17 @@ fn validate_grant_fields(req: &Value) -> Result<()> {
             return Err(ClixError::Usage(format!("{key} must be a time")));
         }
     }
+    if req.get("args").is_some_and(|v| {
+        !v.is_null()
+            && !v.as_array().is_some_and(|a| {
+                a.iter()
+                    .all(|p| p.as_array().is_some_and(|p| p.iter().all(Value::is_string)))
+            })
+    }) {
+        return Err(ClixError::Usage(
+            "args must be a list of argument lists".into(),
+        ));
+    }
     Ok(())
 }
 
@@ -268,8 +279,13 @@ fn rpc_add(store: &Arc<Mutex<Store>>, req: &Value) -> Result<Value> {
     let once = req.get("once").and_then(Value::as_bool).unwrap_or(false);
     let until = rpc_until(req)?;
     let schedule = rpc_schedule(req)?;
+    let args: Option<Vec<Vec<String>>> = match req.get("args") {
+        None | Some(Value::Null) => None,
+        Some(v) => Some(serde_json::from_value(v.clone())?),
+    };
     let mut store = lock_store(store);
-    let grant = store.update(|s| grant::add(s, tool, &allow, once, until, schedule))?;
+    let grant =
+        store.update(|s| grant::add_with_args(s, tool, &allow, once, until, schedule, args))?;
     Ok(json!({"ok": true, "tool": grant.tool}))
 }
 
@@ -778,6 +794,7 @@ pub(crate) fn rpc_from_cmd(cmd: &Cmd) -> Result<Value> {
             from,
             to,
             weekdays,
+            args,
         } => Ok(json!({
             "op": "add",
             "tool": crate::grant::resolve_tool(tool)?,
@@ -790,6 +807,7 @@ pub(crate) fn rpc_from_cmd(cmd: &Cmd) -> Result<Value> {
             "from": from,
             "to": to,
             "weekdays": weekdays,
+            "args": args,
         })),
         Cmd::Hands => Ok(json!({"op": "hands"})),
         Cmd::Remove { tool } => {

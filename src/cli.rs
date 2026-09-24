@@ -18,6 +18,8 @@ pub enum Cmd {
         from: Option<String>,
         to: Option<String>,
         weekdays: bool,
+        /// Exact allowed argument vectors (`--only`); `None` is unconstrained.
+        args: Option<Vec<Vec<String>>>,
     },
     Exec {
         body: String,
@@ -229,6 +231,10 @@ struct GrantCli {
     to: Option<String>,
     #[arg(long = "weekdays")]
     weekdays: bool,
+    /// Allow only this exact argument list (space-separated; repeatable;
+    /// `--only ""` allows running with no arguments).
+    #[arg(long = "only", value_name = "ARGS")]
+    only: Vec<String>,
 }
 
 pub fn parse_argv(argv: &[String]) -> Result<Cmd> {
@@ -274,6 +280,7 @@ pub fn parse_argv(argv: &[String]) -> Result<Cmd> {
                 from: g.from,
                 to: g.to,
                 weekdays: g.weekdays,
+                args: g.args,
             })
         }
         Some(Commands::Pair { phrase, name }) => Ok(Cmd::Pair { phrase, name }),
@@ -289,6 +296,11 @@ pub fn parse_argv(argv: &[String]) -> Result<Cmd> {
         Some(Commands::Pending) => Ok(Cmd::Pending),
         Some(Commands::Allow { request_id, grant }) => {
             let g = parse_grant_cli(grant, true, false)?;
+            if g.args.is_some() {
+                return Err(ClixError::Usage(
+                    "limit arguments with clix add --only, not when approving a request".into(),
+                ));
+            }
             Ok(Cmd::Allow {
                 request_id,
                 allow: g.allow,
@@ -342,6 +354,7 @@ struct GrantNarrow {
     from: Option<String>,
     to: Option<String>,
     weekdays: bool,
+    args: Option<Vec<Vec<String>>>,
 }
 
 fn parse_grant_cli(
@@ -361,7 +374,13 @@ fn parse_grant_cli(
         from,
         to,
         weekdays,
+        only,
     } = grant;
+    let args = (!only.is_empty()).then(|| {
+        only.iter()
+            .map(|a| a.split_whitespace().map(str::to_string).collect())
+            .collect::<Vec<Vec<String>>>()
+    });
     if all && (server || !allow.is_empty()) {
         return Err(ClixError::Usage(
             "use --all or --allow/--server, not both".into(),
@@ -415,6 +434,7 @@ fn parse_grant_cli(
         from,
         to,
         weekdays,
+        args,
     })
 }
 

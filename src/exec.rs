@@ -26,7 +26,9 @@ fn validate_argv(grant: &Grant, argv: &[String]) -> Result<()> {
     if argv.first() != Some(&grant.tool) {
         return Err(ClixError::Usage("argv[0] is not granted".into()));
     }
-    Ok(())
+    // Admission already enforced this; checking again at spawn keeps any other
+    // caller of run_granted from executing a disallowed argument vector.
+    grant::check_args(grant, argv)
 }
 
 /// Persist acceptance and reserve permission before starting a process. Duplicate
@@ -113,7 +115,9 @@ fn submit_inner(
                 stdout: Vec::new(),
                 stderr: Vec::new(),
             };
-            let granted = match grant::check(s, &argv[0], from) {
+            let granted = match grant::check(s, &argv[0], from)
+                .and_then(|g| grant::check_args(&g, argv).map(|()| g))
+            {
                 Ok(g) => {
                     let permit = limits.child()?;
                     if g.once {
@@ -126,7 +130,17 @@ fn submit_inner(
                     Some((g, permit))
                 }
                 Err(e) => {
-                    if !matches!(e, ClixError::GrantBusy { .. }) {
+                    // A missing or insufficient grant becomes a request the owner
+                    // can approve. A busy once-grant or a disallowed argument
+                    // vector cannot be fixed by approving a request, so neither
+                    // creates one.
+                    if matches!(
+                        e,
+                        ClixError::NotAdded { .. }
+                            | ClixError::NotAllowed { .. }
+                            | ClixError::Expired { .. }
+                            | ClixError::NotAddedAtTime { .. }
+                    ) {
                         request::upsert(s, from.clone(), &argv[0])?;
                     }
                     j.status = JobStatus::Denied {
@@ -316,6 +330,7 @@ mod resource_tests {
             until: None,
             schedule: None,
             reservation: None,
+            args: None,
         }
     }
 

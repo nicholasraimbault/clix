@@ -28,7 +28,10 @@ pub use cli::{parse_argv, Cmd, JobCommand, PinCommand, RecoveryCommand, StorageC
 pub use daemon::{dispatch, serve, serve_local};
 pub use error::ClixError;
 pub use exec::run_granted;
-pub use grant::{add, check, check_at, describe as describe_grant, hands, remove, resolve_tool};
+pub use grant::{
+    add, add_with_args, check, check_args, check_at, describe as describe_grant, hands, remove,
+    resolve_tool,
+};
 pub use local::client_send;
 pub use mesh::{call as mesh_call, MeshHandle, MeshListener};
 pub use notify::{display_present_in, set_notify_hook, NotifyHook};

@@ -9,6 +9,12 @@ use serde::{Deserialize, Serialize};
 use crate::error::{ClixError, Result};
 use crate::types::{Grant, Job, JobStatus, OutboundRequest, Peer, Request, RequestReceipt};
 
+/// On-disk format written by this binary. Version 2 adds authority-bearing
+/// fields (per-grant argument allowlists, opt-in pin) that a version-1 binary
+/// would silently drop — failing open. Stamping 2 makes such a binary refuse the
+/// state instead. This binary reads versions up to and including this one.
+pub(crate) const FORMAT_VERSION: u32 = 2;
+
 /// Last successful pin sync: content hashes plus when that sync finished.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PinIndex {
@@ -106,7 +112,7 @@ impl Store {
                 ));
             }
             let mut store: Store = serde_json::from_slice(&bytes)?;
-            if store.format_version > 1 {
+            if store.format_version > FORMAT_VERSION {
                 return Err(ClixError::Usage(
                     "this state needs a newer Clix binary".into(),
                 ));
@@ -144,7 +150,7 @@ impl Store {
                 legacy_jobs: BTreeSet::new(),
                 output_pruned: BTreeSet::new(),
                 history_pruned: BTreeSet::new(),
-                format_version: 1,
+                format_version: FORMAT_VERSION,
                 pin_enabled: false,
                 pin_dir: None,
             };
@@ -214,7 +220,7 @@ impl Store {
         let mut next = self.clone();
         let value = edit(&mut next)?;
         crate::history::refresh_owned(&mut next, Some(self))?;
-        next.format_version = 1;
+        next.format_version = FORMAT_VERSION;
         crate::history::normalize_output(&mut next);
         crate::storage::prepare(&mut next, self)?;
         let bytes = crate::storage::encode(&next)?;

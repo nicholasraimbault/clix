@@ -202,6 +202,12 @@ startup rather than refusing to run.
 
 ## Upgrades
 
+This version writes state format 2, which adds per-grant argument allowlists
+(`clix add --only`) and opt-in pin. A format-1 binary refuses format-2 state
+rather than silently dropping an allowlist and running a tool unconstrained, so
+a downgrade requires restoring the pre-upgrade backup. Upgraded machines start
+with pin off; run `clix pin on` where you want `~/src` shared.
+
 Stop the service and back up its state directory and recovery directory before
 replacing the binary. The default state directory is
 `${XDG_STATE_HOME:-$HOME/.local/state}/clix`. Preserve ownership and private file

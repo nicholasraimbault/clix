@@ -62,7 +62,20 @@ pub fn add(
     until: Option<SystemTime>,
     schedule: Option<Schedule>,
 ) -> Result<Grant> {
-    let grant = build(store, tool, allow, once, until, schedule)?;
+    add_with_args(store, tool, allow, once, until, schedule, None)
+}
+
+/// `add`, optionally limiting the grant to exact argument vectors.
+pub fn add_with_args(
+    store: &mut Store,
+    tool: &str,
+    allow: &[String],
+    once: bool,
+    until: Option<SystemTime>,
+    schedule: Option<Schedule>,
+    args: Option<Vec<Vec<String>>>,
+) -> Result<Grant> {
+    let grant = build(store, tool, allow, once, until, schedule, args)?;
     commit(store, grant.clone());
     Ok(grant)
 }
@@ -77,12 +90,26 @@ pub(crate) fn build(
     once: bool,
     until: Option<SystemTime>,
     schedule: Option<Schedule>,
+    args: Option<Vec<Vec<String>>>,
 ) -> Result<Grant> {
     crate::limits::tool(tool)?;
     if once && schedule.is_some() {
         return Err(ClixError::Usage(
             "use --once or a schedule, not both".into(),
         ));
+    }
+    if let Some(patterns) = &args {
+        if patterns.is_empty() {
+            return Err(ClixError::Usage(
+                "an argument allowlist needs at least one entry".into(),
+            ));
+        }
+        // Each allowed vector is an argv tail, validated like a real invocation.
+        for pattern in patterns {
+            let mut argv = vec![tool_key(tool)];
+            argv.extend(pattern.iter().cloned());
+            crate::limits::invocation("allowlist", &argv)?;
+        }
     }
     let binary = resolve_tool(tool)?;
     for name in allow {
@@ -103,7 +130,37 @@ pub(crate) fn build(
         until,
         schedule,
         reservation: None,
+        args,
     })
+}
+
+/// Enforce a grant's argument allowlist, if it has one: `argv[1..]` must equal
+/// one of the listed vectors exactly. Exact match (not prefix) is deliberate, so
+/// an allowed `devices` cannot become `devices --output …` or gain a leading
+/// option. A grant without a list leaves arguments unconstrained.
+pub fn check_args(grant: &Grant, argv: &[String]) -> Result<()> {
+    let Some(patterns) = &grant.args else {
+        return Ok(());
+    };
+    let tail = argv.get(1..).unwrap_or(&[]);
+    if patterns.iter().any(|p| p.as_slice() == tail) {
+        return Ok(());
+    }
+    let allowed: Vec<String> = patterns
+        .iter()
+        .map(|p| {
+            if p.is_empty() {
+                "(no arguments)".to_string()
+            } else {
+                p.join(" ")
+            }
+        })
+        .collect();
+    Err(ClixError::Usage(format!(
+        "{} is granted only with these arguments: {}",
+        grant.tool,
+        allowed.join(" | ")
+    )))
 }
 
 /// Replace any grant for the same tool with this one and invalidate its pending
@@ -123,6 +180,7 @@ pub(crate) fn same_permission(a: &Grant, b: &Grant) -> bool {
         && a.once == b.once
         && a.until == b.until
         && a.schedule == b.schedule
+        && a.args == b.args
 }
 
 /// Resolve only the spelling of a removal path, never its filesystem target.
@@ -190,6 +248,19 @@ pub fn describe(grant: &Grant) -> String {
     }
     if grant.schedule.is_some() {
         line.push_str("  schedule");
+    }
+    if let Some(patterns) = &grant.args {
+        let shown: Vec<String> = patterns
+            .iter()
+            .map(|p| {
+                if p.is_empty() {
+                    "(no arguments)".to_string()
+                } else {
+                    p.join(" ")
+                }
+            })
+            .collect();
+        line.push_str(&format!("  only: {}", shown.join(" | ")));
     }
     if grant.reservation.is_some() {
         line.push_str("  [reserved for a running job]");
