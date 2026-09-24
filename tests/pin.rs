@@ -420,3 +420,107 @@ async fn mesh_exec_runs_despite_a_pin_conflict() {
         "{synced}"
     );
 }
+
+#[tokio::test]
+async fn receiver_rejects_a_pin_put_that_diverges_from_its_baseline() {
+    // The honest-conflict rule must be enforced on the receiver, not only by the
+    // initiating planner. A paired peer that reads the receiver's current
+    // fingerprint (pin_list) and writes with expected=current must not be able
+    // to overwrite a local edit the receiver made since the last sync.
+    let (laptop, server) = paired("laptop", "server").await;
+    // Establish a shared baseline for notes.txt.
+    write_rel(&laptop.pin_dir(), "notes.txt", "v1\n");
+    server
+        .rpc(json!({"op": "pin_sync", "body": "laptop"}))
+        .await
+        .unwrap();
+    // The laptop owner edits locally and does NOT sync: it has diverged from
+    // the shared baseline.
+    write_rel(&laptop.pin_dir(), "notes.txt", "laptop local edit\n");
+    // The server reads the laptop's current fingerprint and tries to overwrite
+    // it directly, supplying expected = the laptop's current version.
+    let listing = server
+        .mesh_raw(laptop.mesh_addr(), json!({"op": "pin_list"}))
+        .await
+        .unwrap();
+    let current = listing["files"]["notes.txt"].clone();
+    assert!(current.is_object(), "listing: {listing}");
+    let overwrite = fs::read("/usr/bin/true").ok();
+    let _ = overwrite;
+    let put = server
+        .mesh_raw(
+            laptop.mesh_addr(),
+            json!({
+                "op": "pin_put",
+                "path": "notes.txt",
+                "expected": current,
+                "new": {"hash": sha256_hex(b"server overwrite\n"), "mode": 420},
+                "content": hex_of(b"server overwrite\n"),
+            }),
+        )
+        .await;
+    assert!(
+        put.is_err(),
+        "receiver must refuse the diverging write: {put:?}"
+    );
+    // The laptop's local edit is intact.
+    assert_eq!(
+        fs::read_to_string(laptop.pin_dir().join("notes.txt")).unwrap(),
+        "laptop local edit\n"
+    );
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+fn hex_of(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+#[tokio::test]
+async fn pin_excludes_git_hooks_from_sync_and_incoming_writes() {
+    let (laptop, server) = paired("laptop", "server").await;
+    // An existing hook on the laptop is not replicated by a sync.
+    write_rel(
+        &laptop.pin_dir(),
+        ".git/hooks/pre-commit",
+        "#!/bin/sh\ntrue\n",
+    );
+    write_rel(&laptop.pin_dir(), "keep.txt", "ok\n");
+    server
+        .rpc(json!({"op": "pin_sync", "body": "laptop"}))
+        .await
+        .unwrap();
+    assert_eq!(
+        fs::read_to_string(server.pin_dir().join("keep.txt")).unwrap(),
+        "ok\n"
+    );
+    assert!(
+        !server.pin_dir().join(".git/hooks/pre-commit").exists(),
+        "git hooks must not replicate through pin"
+    );
+    // A peer cannot plant a hook by writing directly to a .git/hooks path.
+    let put = server
+        .mesh_raw(
+            laptop.mesh_addr(),
+            json!({
+                "op": "pin_put",
+                "path": ".git/hooks/pre-commit",
+                "expected": null,
+                "new": {"hash": sha256_hex(b"evil\n"), "mode": 493},
+                "content": hex_of(b"evil\n"),
+            }),
+        )
+        .await;
+    assert!(put.is_err(), "planting a git hook must be refused: {put:?}");
+    // The owner's own hook is untouched; the peer's content was not written.
+    assert_eq!(
+        fs::read_to_string(laptop.pin_dir().join(".git/hooks/pre-commit")).unwrap(),
+        "#!/bin/sh\ntrue\n"
+    );
+}

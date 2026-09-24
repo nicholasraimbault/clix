@@ -84,10 +84,19 @@ fn valid_path(rel: &str) -> Result<()> {
             .components()
             .any(|c| !matches!(c, Component::Normal(_)))
         || rel.split('/').any(|c| c == RECOVERY)
+        || excluded(rel)
     {
         return Err(ClixError::Protocol("invalid pin path".into()));
     }
     Ok(())
+}
+
+/// Paths pin never syncs or accepts, beyond `.clix-recovery`. Git hooks are
+/// executable files that run on ordinary git operations, so a peer must not be
+/// able to place one through pin, and local hooks are not replicated.
+fn excluded(rel: &str) -> bool {
+    let parts: Vec<&str> = rel.split('/').collect();
+    parts.windows(2).any(|w| w == [".git", "hooks"])
 }
 
 struct Tree {
@@ -298,6 +307,11 @@ impl Tree {
             } else {
                 format!("{prefix}/{name}")
             };
+            // Never let excluded paths (e.g. .git/hooks) enter the manifest, so
+            // they are neither read from nor written to during sync.
+            if excluded(&path) {
+                continue;
+            }
             match ent.file_type() {
                 rustix::fs::FileType::Directory => self.scan_dir(
                     &self.open_rel(&path, OFlags::RDONLY | OFlags::DIRECTORY)?,
@@ -787,10 +801,15 @@ pub(crate) async fn rpc_get_async(store: &Arc<Mutex<Store>>, request: &Value) ->
     })
     .await
 }
-pub(crate) async fn rpc_put_async(store: &Arc<Mutex<Store>>, request: &Value) -> Result<Value> {
+pub(crate) async fn rpc_put_async(
+    store: &Arc<Mutex<Store>>,
+    peer: &Peer,
+    request: &Value,
+) -> Result<Value> {
     let store = store.clone();
     let request = request.clone();
-    blocking(move || rpc_put(&lock(&store), &request)).await
+    let peer = peer.clone();
+    blocking(move || rpc_put(&lock(&store), &peer, &request)).await
 }
 pub(crate) async fn rpc_commit_async(
     store: &Arc<Mutex<Store>>,
@@ -802,7 +821,7 @@ pub(crate) async fn rpc_commit_async(
     let peer = peer.clone();
     blocking(move || rpc_commit(&mut lock(&store), &peer, &request)).await
 }
-pub(crate) fn rpc_put(s: &Store, req: &Value) -> Result<Value> {
+pub(crate) fn rpc_put(s: &Store, peer: &Peer, req: &Value) -> Result<Value> {
     let path = req
         .get("path")
         .and_then(Value::as_str)
@@ -815,6 +834,19 @@ pub(crate) fn rpc_put(s: &Store, req: &Value) -> Result<Value> {
     }
     let expected: Option<Fingerprint> = serde_json::from_value(req["expected"].clone())?;
     let new: Option<Fingerprint> = serde_json::from_value(req["new"].clone())?;
+    // Enforce the honest-conflict rule on the receiver, not only in the
+    // initiator's planner: a write is accepted only when the receiver's own
+    // recorded baseline for this peer matches what the caller expected. If the
+    // receiver has a local edit since the last sync (baseline != current), a
+    // peer cannot overwrite it by reading and echoing the current fingerprint.
+    valid_path(&path)?;
+    if baseline(s, &peer.owner_pk).get(&path) != expected.as_ref() {
+        return Err(conflict(
+            &path,
+            &peer.name.0,
+            &format!("{} (local change since last sync)", s.body_name),
+        ));
+    }
     let bytes = req
         .get("content")
         .and_then(Value::as_str)

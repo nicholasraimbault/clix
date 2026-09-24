@@ -401,7 +401,7 @@ async fn dispatch(
         }
         "pin_list" => crate::pin::rpc_list_async(store, peer).await,
         "pin_get" => crate::pin::rpc_get_async(store, &req).await,
-        "pin_put" => crate::pin::rpc_put_async(store, &req).await,
+        "pin_put" => crate::pin::rpc_put_async(store, peer, &req).await,
         "pin_commit" => crate::pin::rpc_commit_async(store, peer, &req).await,
         op => Err(ClixError::Usage(format!(
             "{op} is not allowed over the mesh"
