@@ -324,27 +324,7 @@ async fn dispatch(
             } else {
                 Some(limits.mesh_exec()?)
             };
-            let needs_sync = !existing
-                && crate::grant::check(
-                    &store.lock().unwrap_or_else(|e| e.into_inner()),
-                    &c.invocation.argv[0],
-                    &peer.name,
-                )
-                .is_ok();
-            if needs_sync {
-                let sk = store
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .owner_sk
-                    .clone();
-                crate::pin::sync_with_peer(
-                    store,
-                    &sk,
-                    peer.addr.as_deref().ok_or(ClixError::Unreachable)?,
-                    &peer.name.0,
-                )
-                .await?;
-            }
+            // Execution no longer triggers a pin sync (see dispatch_one).
             exec::submit_certified(store, limits, &c)?;
             crate::history::execution_reply(&store.lock().unwrap_or_else(|e| e.into_inner()), &c)
         }
@@ -385,27 +365,7 @@ async fn dispatch(
             } else {
                 Some(limits.mesh_exec()?)
             };
-            let needs_sync = !existing
-                && crate::grant::check(
-                    &store.lock().unwrap_or_else(|e| e.into_inner()),
-                    argv.first().map(String::as_str).unwrap_or(""),
-                    &peer.name,
-                )
-                .is_ok();
-            if needs_sync {
-                let sk = store
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .owner_sk
-                    .clone();
-                crate::pin::sync_with_peer(
-                    store,
-                    &sk,
-                    peer.addr.as_deref().ok_or(ClixError::Unreachable)?,
-                    &peer.name.0,
-                )
-                .await?;
-            }
+            // Execution no longer triggers a pin sync (see dispatch_one).
             exec::submit(store, limits, &peer.name, &argv, id)
         }
         "job_get" => {

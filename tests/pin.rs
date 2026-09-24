@@ -128,12 +128,8 @@ async fn unknown_peer_on_pair_is_denied() {
 async fn mesh_one_side_edit_copies() {
     let (laptop, server) = paired("laptop", "server").await;
     write_rel(&laptop.pin_dir(), "foo.rs", "v1");
-    laptop
-        .rpc(json!({"op": "add", "tool": "true"}))
-        .await
-        .unwrap();
     server
-        .rpc(json!({"op": "exec", "body": "laptop", "argv": ["true"]}))
+        .rpc(json!({"op": "pin_sync", "body": "laptop"}))
         .await
         .unwrap();
     assert_eq!(
@@ -142,10 +138,11 @@ async fn mesh_one_side_edit_copies() {
     );
     tokio::time::sleep(Duration::from_millis(5)).await;
     write_rel(&laptop.pin_dir(), "foo.rs", "v2");
-    server
-        .rpc(json!({"op": "exec", "body": "laptop", "argv": ["true"]}))
+    let synced = server
+        .rpc(json!({"op": "pin_sync", "body": "laptop"}))
         .await
-        .expect("one-sided edit must copy, not conflict");
+        .unwrap();
+    assert_eq!(synced["synced"], true, "one-sided edit must copy: {synced}");
     assert_eq!(
         fs::read_to_string(server.pin_dir().join("foo.rs")).unwrap(),
         "v2"
@@ -153,25 +150,9 @@ async fn mesh_one_side_edit_copies() {
 }
 
 #[tokio::test]
-async fn conflict_blocks_mesh_exec() {
-    let (laptop, server) = paired("laptop", "server").await;
-    write_rel(&laptop.pin_dir(), "foo.rs", "laptop wrote this");
-    write_rel(&server.pin_dir(), "foo.rs", "server wrote this");
-    laptop
-        .rpc(json!({"op": "add", "tool": "true"}))
-        .await
-        .unwrap();
-    let result = server
-        .rpc(json!({"op": "exec", "body": "laptop", "argv": ["true"]}))
-        .await
-        .unwrap();
-    assert_eq!(result["status"], "failed");
-    let msg = result["reason"].as_str().unwrap();
-    assert!(msg.contains("Not merging"), "{msg}");
-}
-
-#[tokio::test]
-async fn start_conflict_does_not_run_waiting_exec() {
+async fn waiting_exec_runs_when_the_peer_returns_regardless_of_pins() {
+    // Exec is decoupled from pin sync: a waiting job runs when the peer comes
+    // back even if the pin trees conflict. Pin honesty is a separate concern.
     std::env::set_var("CLIX_WAIT_POLL", "50ms");
     let dir = tempfile::tempdir().unwrap();
     let marker = dir.path().join("ran");
@@ -204,11 +185,11 @@ async fn start_conflict_does_not_run_waiting_exec() {
         .unwrap();
     assert_eq!(waiting["status"], "waiting", "{waiting}");
     let _laptop = laptop.restart().await;
-    tokio::time::sleep(Duration::from_millis(400)).await;
+    tokio::time::sleep(Duration::from_millis(600)).await;
     let ran = fs::read_to_string(&marker).unwrap_or_default();
-    assert!(
-        ran.is_empty(),
-        "start-sync conflict must not run waiting exec, got {ran:?}"
+    assert_eq!(
+        ran, "x\n",
+        "waiting exec should run when the peer returns, got {ran:?}"
     );
 }
 
@@ -316,14 +297,10 @@ async fn network_pin_preserves_executable_mode_and_binary_content() {
         fs::Permissions::from_mode(0o751),
     )
     .unwrap();
-    laptop.rpc(json!({"op":"add","tool":"true"})).await.unwrap();
-    assert_eq!(
-        server
-            .rpc(json!({"op":"exec","body":"laptop","argv":["true"]}))
-            .await
-            .unwrap()["exit"],
-        0
-    );
+    server
+        .rpc(json!({"op":"pin_sync","body":"laptop"}))
+        .await
+        .unwrap();
     assert_eq!(
         fs::read(server.pin_dir().join("binary")).unwrap(),
         vec![0, 255, 128]
@@ -412,4 +389,34 @@ fn pin_cannot_replace_an_active_granted_binary() {
         .to_string();
     assert!(error.contains("granted binary"), "{error}");
     assert_eq!(fs::read(b.path().join("tool")).unwrap(), b"original");
+}
+
+#[tokio::test]
+async fn mesh_exec_runs_despite_a_pin_conflict() {
+    // Remote execution is no longer gated on a pin sync: a real ~/src can
+    // exceed the pin scan limits or hold a conflict without breaking exec.
+    // Pin honesty is still enforced by an explicit sync (below).
+    let (laptop, server) = paired("laptop", "server").await;
+    write_rel(&laptop.pin_dir(), "foo.rs", "laptop wrote this");
+    write_rel(&server.pin_dir(), "foo.rs", "server wrote this");
+    laptop
+        .rpc(json!({"op": "add", "tool": "true"}))
+        .await
+        .unwrap();
+    let result = server
+        .rpc(json!({"op": "exec", "body": "laptop", "argv": ["true"]}))
+        .await
+        .unwrap();
+    assert_eq!(result["status"], "done", "{result}");
+    assert_eq!(result["exit"], 0, "{result}");
+    // An explicit pin sync still refuses to merge the conflict.
+    let synced = server
+        .rpc(json!({"op": "pin_sync", "body": "laptop"}))
+        .await
+        .unwrap();
+    assert_eq!(synced["synced"], false, "{synced}");
+    assert!(
+        synced["error"].as_str().unwrap().contains("Not merging"),
+        "{synced}"
+    );
 }

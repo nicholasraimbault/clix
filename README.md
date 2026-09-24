@@ -52,9 +52,10 @@ the new recovery phases; restoring a pre-upgrade backup also loses later replay
 receipts. See [operation and recovery](docs/operations.md).
 
 **Before pairing:** Clix automatically pins `~/src` on both machines. Pairing and
-each remote execution synchronize that directory in both directions, including
-deletions after a shared baseline. Review its contents first. Conflicts stop
-sync and remote execution; there is no automatic merge. An `--all` grant also
+`clix pin sync` synchronize that directory in both directions, including
+deletions after a shared baseline. Review its contents first. A conflict stops
+the sync with a named path and no automatic merge; it does not block remote
+execution, which no longer waits on a pin sync. An `--all` grant also
 applies to machines paired later. A pin failure after pairing can
 leave the pairing saved; read the error and `clix status` before retrying.
 See the pin limits below.

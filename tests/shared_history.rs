@@ -132,12 +132,12 @@ async fn local_only_result_reaches_third_body_through_relay_with_origin_offline(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn origin_pin_conflict_failure_replicates_without_runner_admission() {
+async fn pin_conflict_does_not_block_or_corrupt_mesh_exec() {
+    // Execution is decoupled from pin sync: a pin conflict neither blocks the
+    // remote run nor lets it silently rewrite either side's pinned files. Pin
+    // honesty is enforced separately by clix pin sync.
     let (origin, runner, observer) = full_mesh().await;
     runner.rpc(json!({"op":"add","tool":"true"})).await.unwrap();
-    let runner_before = authority(&read_state(&runner));
-    let observer_before = authority(&read_state(&observer));
-    // Pairing has completed with empty trees; these are independent new edits.
     fs::create_dir_all(origin.pin_dir()).unwrap();
     fs::create_dir_all(runner.pin_dir()).unwrap();
     fs::write(origin.pin_dir().join("conflict.txt"), b"origin edit").unwrap();
@@ -147,29 +147,26 @@ async fn origin_pin_conflict_failure_replicates_without_runner_admission() {
         origin.rpc(json!({"op":"exec","body":"runner","argv":["true"]})),
     )
     .await
-    .expect("pin conflict execution timed out")
+    .expect("execution timed out")
     .unwrap();
-    assert_eq!(response["status"], "failed", "{response}");
-    assert!(response["reason"].as_str().unwrap().contains("Not merging"));
-    let failed: Job = serde_json::from_value(response["job"].clone()).unwrap();
+    assert_eq!(response["status"], "done", "{response}");
+    assert_eq!(response["exit"], 0, "{response}");
+    let done: Job = serde_json::from_value(response["job"].clone()).unwrap();
+    // The verified runner result replicates to the observer.
     for daemon in [&runner, &observer] {
-        let log = wait_log(daemon, "origin delivery failure", |log| {
-            logged_job(log, &failed.id).as_ref() == Some(&failed)
+        let log = wait_log(daemon, "runner result", |log| {
+            logged_job(log, &done.id).is_some()
         })
         .await;
         let view = log["views"]
             .as_array()
             .unwrap()
             .iter()
-            .find(|v| v["job"]["id"] == failed.id)
+            .find(|v| v["job"]["id"] == done.id)
             .unwrap();
-        assert_eq!(
-            view["provenance"],
-            "origin delivery observation; runner outcome not known"
-        );
+        assert_eq!(view["provenance"], "verified runner result", "{view}");
     }
-    assert_eq!(authority(&read_state(&runner)), runner_before);
-    assert_eq!(authority(&read_state(&observer)), observer_before);
+    // Neither side's pinned file was touched by the run.
     assert_eq!(
         fs::read(origin.pin_dir().join("conflict.txt")).unwrap(),
         b"origin edit"

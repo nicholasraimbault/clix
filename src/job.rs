@@ -348,9 +348,9 @@ async fn dispatch_one(store: &Arc<Mutex<Store>>, job: &Job) -> Result<()> {
             apply(&known)?;
             return Ok(());
         }
-        {
-            crate::pin::sync_with_peer(store, &sk, addr, &peer.name.0).await?;
-        }
+        // Pin sync is no longer coupled to execution: a real ~/src can exceed
+        // the pin scan limits or hold a conflict without blocking remote work.
+        // Pins sync at pairing and on explicit `clix pin sync`.
         let resp = mesh::call(
             addr,
             &sk,
