@@ -24,9 +24,11 @@ amendments.
   Each changes a signed wire format, migrates stored state, or needs a published
   release. Proving each needs mixed-version two-machine runs or a real install.
   The design keeps its original text for these.
-- **Proof:** loopback and process tests only so far. Two-machine proof on the
-  laptop and server, and the upgrade of the installed services, are recorded
-  separately when done.
+- **Proof:** the [two-machine evidence](evidence/2026-09-24/review-fixes/README.md)
+  covers two things:
+  - disposable fixtures over Tailscale, where all 9 checks passed;
+  - the upgrade of both installed services, with backups, where all state
+    was preserved and the production `adb` smoke test exited 0.
 
 ---
 

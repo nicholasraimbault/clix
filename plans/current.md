@@ -68,10 +68,20 @@ recorded in the [review-fix plan](2026-09-24-review-fixes.md) and in the design'
   notifications and the tray are detected at runtime, and lingering is advised.
 - Wording now uses machine and grant.
 
-225 tests pass (`cargo test --locked --no-fail-fast`), and fmt and clippy are
-clean. These results come from loopback and process tests. Two-machine proof of
-this pass, and the upgrade of the installed services, have not been recorded
-yet. The standing production grant above predates this pass.
+225 tests pass (`cargo test --locked --no-fail-fast`), fmt and clippy are clean,
+and GitHub CI passed on the pushed commit. The
+[two-machine evidence](evidence/2026-09-24/review-fixes/README.md) covers
+disposable fixtures on the laptop and server over Tailscale. The server drove
+the laptop, and all 9 checks passed:
+- an argument-limited grant ran only its allowed argument list;
+- an ungranted tool was refused;
+- pin sync was refused while pin was off;
+- `.git` was not synced.
+
+Both installed services were then upgraded with backups, and every existing
+state field was preserved. The standing `adb` grant ran from the server with
+exit 0. Pin is now off on both machines, and that grant still accepts any
+`adb` arguments until the owner limits it.
 
 ## Still incomplete or unproved
 

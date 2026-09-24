@@ -61,3 +61,41 @@ machine.
   separately.
 - **Everything else.** Physical suspend/resume, sustained daily use and the
   specifically two-Arch milestone.
+
+## Installed services upgraded
+
+Both installed `systemd --user` services were upgraded one after the other; the
+server went first and the laptop about nine seconds later. For each machine:
+
+- **Pre-flight.**
+  - The service was active on the release recorded on 2026-09-12: laptop
+    `1f234ab9…`, server `4bc43d0e…`.
+  - No job was queued or running.
+  - State was format 1.
+  - Neither unit file differed from the previous template (ExecStart aside).
+- **Backups.** The state directory, the `~/src/.clix-recovery` directory and the
+  previous binary were copied with their permissions to
+  `*.pre-review-fixes-<timestamp>` beside the originals. They are kept outside
+  the repository.
+- **Upgrade.** The service was stopped, the release above was installed at the
+  same path, and `clix install` rewrote the unit (`RestartSec=2`, with the
+  ineffective `network-online.target` ordering removed) and started it. Both
+  services came back active on the new binaries: laptop `99f6b225…`, server
+  `57a388d4…`.
+- **State.** All 16 existing decoded state fields were unchanged against the
+  backup on both machines. That includes identity, the peer, grants, jobs,
+  requests, receipts, pin index and history. The first write after the upgrade
+  stamped format 2. Pin is off on both machines (the new default), and the
+  laptop's `~/src` has no content.
+- **Smoke.** From the server, the laptop's existing `adb` grant ran as
+  `adb devices` through the upgraded services: exit 0, with the job recorded as
+  `Done { exit: 0 }` on both machines. No phone was attached, which is not a
+  failure. On the laptop, `clix grants` now shows the grant's scope:
+  `adb  → server`.
+
+The standing laptop grant is unchanged and still accepts any `adb` arguments.
+Limiting it (for example `--only devices`) is an owner decision.
+
+**Rollback:** stop the service, restore the state directory, recovery directory
+and binary from the backups, then start the service. A format-1 binary refuses
+format-2 state, so restore the state backup rather than only the binary.
