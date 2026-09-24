@@ -67,7 +67,7 @@ pub enum Cmd {
 #[command(name = "clix", disable_help_subcommand = true, color = ColorChoice::Never)]
 #[command(allow_external_subcommands = true)]
 #[command(
-    after_help = "Named machine: clix [--no-wait] -- BODY TOOL ARG…\nUse this form when BODY matches an owner command; tool arguments are preserved."
+    after_help = "Named machine: clix [--no-wait] @MACHINE TOOL ARG…  (or: clix [--no-wait] -- MACHINE TOOL ARG…)\nUse either form when MACHINE matches an owner command; tool arguments are preserved."
 )]
 struct Cli {
     #[arg(long = "no-wait", global = true)]
@@ -237,6 +237,18 @@ struct GrantCli {
     only: Vec<String>,
 }
 
+/// Every top-level owner command name and alias, from the parser itself so the
+/// list cannot drift from the commands clix actually accepts.
+pub(crate) fn owner_command_names() -> Vec<String> {
+    use clap::CommandFactory;
+    Cli::command()
+        .get_subcommands()
+        .flat_map(|c| {
+            std::iter::once(c.get_name().to_string()).chain(c.get_all_aliases().map(str::to_string))
+        })
+        .collect()
+}
+
 pub fn parse_argv(argv: &[String]) -> Result<Cmd> {
     // A new owner command must not make an existing paired body unreachable.
     // The explicit destination form also leaves every tool argument untouched.
@@ -260,6 +272,33 @@ pub fn parse_argv(argv: &[String]) -> Result<Cmd> {
         return Ok(Cmd::Exec {
             body: parts[0].clone(),
             argv: parts[1..].to_vec(),
+            no_wait,
+        });
+    }
+    // `clix @machine cmd…` names the destination unambiguously: `@` can never
+    // begin a machine name or an owner command, so this works even for a
+    // machine whose name matches a command, now or in a later version.
+    let at = if argv.get(1).is_some_and(|s| s.starts_with('@')) {
+        Some((1, false))
+    } else if argv.get(1).is_some_and(|s| s == "--no-wait")
+        && argv.get(2).is_some_and(|s| s.starts_with('@'))
+    {
+        Some((2, true))
+    } else {
+        None
+    };
+    if let Some((index, no_wait)) = at {
+        let body = &argv[index][1..];
+        let tool_argv = &argv[index + 1..];
+        if tool_argv.is_empty() {
+            return Err(ClixError::Usage(
+                "usage: clix [--no-wait] @<machine> <cmd>…".into(),
+            ));
+        }
+        crate::pair::validate_name(body)?;
+        return Ok(Cmd::Exec {
+            body: body.to_string(),
+            argv: tool_argv.to_vec(),
             no_wait,
         });
     }

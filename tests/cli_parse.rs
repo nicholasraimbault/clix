@@ -585,3 +585,55 @@ fn allow_rejects_argument_limits() {
         other => panic!("expected usage, got {other}"),
     }
 }
+
+#[test]
+fn at_body_addresses_a_machine_even_when_its_name_is_a_command() {
+    for (args, body, argv, no_wait) in [
+        (
+            vec!["clix", "@laptop", "adb", "devices"],
+            "laptop",
+            vec!["adb", "devices"],
+            false,
+        ),
+        (vec!["clix", "@status", "adb"], "status", vec!["adb"], false),
+        (
+            vec!["clix", "--no-wait", "@laptop", "adb"],
+            "laptop",
+            vec!["adb"],
+            true,
+        ),
+        // Tool arguments are preserved, including ones that look like flags.
+        (
+            vec!["clix", "@laptop", "adb", "--no-wait", "-s"],
+            "laptop",
+            vec!["adb", "--no-wait", "-s"],
+            false,
+        ),
+    ] {
+        let argv_in: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        match parse_argv(&argv_in).unwrap() {
+            Cmd::Exec {
+                body: b,
+                argv: a,
+                no_wait: w,
+            } => {
+                assert_eq!(b, body, "{args:?}");
+                assert_eq!(a, argv, "{args:?}");
+                assert_eq!(w, no_wait, "{args:?}");
+            }
+            other => panic!("{args:?} parsed as {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn at_body_requires_a_valid_name_and_a_tool() {
+    for args in [
+        vec!["clix", "@"],
+        vec!["clix", "@laptop"],
+        vec!["clix", "@bad!", "x"],
+    ] {
+        let argv_in: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        assert!(parse_argv(&argv_in).is_err(), "{args:?} should be rejected");
+    }
+}

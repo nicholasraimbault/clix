@@ -576,21 +576,42 @@ fn cli_json(daemon: &Daemon, args: &[&str]) -> Value {
 
 #[test]
 fn owner_command_names_do_not_make_paired_bodies_unusable_after_restart() {
+    // New pairings refuse command names, but machines paired under such names
+    // by an older version must stay addressable. Pair with ordinary names, then
+    // rename both saved states to command names as an older version would have
+    // left them, and restart.
     let mut target = Daemon::spawn();
     let mut origin = Daemon::spawn();
-    let invitation = target.rpc(json!({"op":"pair_start","name":"pin"}));
-    origin.rpc(json!({"op":"pair_join","name":"job","phrase":invitation["phrase"],"addr":target.mesh_addr}));
+    let invitation = target.rpc(json!({"op":"pair_start","name":"target"}));
+    origin.rpc(json!({"op":"pair_join","name":"origin","phrase":invitation["phrase"],"addr":target.mesh_addr}));
     target.rpc(json!({"op":"pair_await"}));
+    target.crash();
+    origin.crash();
+    let rename = |daemon: &Daemon, own: &str, peer: &str| {
+        let path = daemon.home.path().join("state/state.json");
+        let mut state: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        state["body_name"] = json!(own);
+        state["peers"][0]["name"] = json!(peer);
+        state["history"]["peers"] = json!({});
+        fs::write(&path, serde_json::to_vec(&state).unwrap()).unwrap();
+    };
+    rename(&target, "pin", "job");
+    rename(&origin, "job", "pin");
+    target.start();
+    origin.start();
     target.rpc(json!({"op":"add","tool":"true","allow":["job"]}));
-    target.restart();
-    origin.restart();
-    let output = origin.cli(&["--", "pin", "true"]);
-    assert!(output.status.success(), "{output:?}");
+    // Both escape forms reach the command-named machine.
+    for form in [&["--", "pin", "true"][..], &["@pin", "true"][..]] {
+        let output = origin.cli(form);
+        assert!(output.status.success(), "{form:?}: {output:?}");
+    }
     let jobs = origin.jobs();
-    assert_eq!(jobs.len(), 1);
-    assert_eq!(jobs[0].from.0, "job");
-    assert_eq!(jobs[0].body.0, "pin");
-    assert_done(&jobs[0], 0);
+    assert_eq!(jobs.len(), 2);
+    for job in &jobs {
+        assert_eq!(job.from.0, "job");
+        assert_eq!(job.body.0, "pin");
+        assert_done(job, 0);
+    }
     assert_eq!(
         cli_json(&origin, &["pin", "recovery", "list"])["body"],
         "job"

@@ -93,9 +93,11 @@ clix log
 These are example names. Without `--name`, pairing uses the hostname;
 `clix status` shows this machine and its paired names. Use the actual target
 name in remote commands. On this machine, run tools normally.
-If a body's name matches a Clix command, use `clix -- BODY TOOL ARG…`.
-This explicit form preserves tool arguments, including `--no-wait`; place
-Clix's own `--no-wait` before `--` when needed.
+`clix @laptop adb devices` always names the machine explicitly, so it works even
+if a machine's name matches a Clix command (`clix -- laptop adb devices` is
+equivalent). These forms preserve tool arguments, including `--no-wait`; place
+Clix's own `--no-wait` first when needed. New pairings refuse a machine name
+that matches a Clix command.
 
 ## Grants and authority
 

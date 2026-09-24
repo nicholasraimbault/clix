@@ -3,8 +3,9 @@
 These commands use this machine's owner socket. Run them as its owner; an agent
 uses the same commands and needs the same authority. Peer history and tool
 execution do not expose owner recovery operations over the mesh.
-Use `clix -- BODY TOOL ARG…` to address a body whose name matches an owner
-command. Adding a command does not rename or invalidate an existing body.
+Use `clix @BODY TOOL ARG…` (or `clix -- BODY TOOL ARG…`) to address a body whose
+name matches an owner command. New pairings refuse such names; adding a command
+does not rename or invalidate an existing body.
 
 ## Jobs and saved history
 

@@ -112,6 +112,18 @@ pub(crate) fn validate_name(name: &str) -> Result<()> {
     Ok(())
 }
 
+/// A machine named like an owner command (`status`, `pin`, …) can only be
+/// addressed with `clix @name` or `clix -- name`, so new pairings refuse such
+/// names. Existing command-named machines from older versions keep working.
+pub(crate) fn refuse_command_name(name: &str, whose: &str) -> Result<()> {
+    if crate::cli::owner_command_names().iter().any(|c| c == name) {
+        return Err(ClixError::Usage(format!(
+            "{whose} is named '{name}', which matches a Clix command; choose another name with clix pair --name"
+        )));
+    }
+    Ok(())
+}
+
 pub(crate) fn validate_store(store: &Store) -> Result<()> {
     validate_name(&store.body_name)?;
     let local_pk = owner_pk(&store.owner_sk)?;
@@ -332,6 +344,13 @@ fn update_peer(s: &mut Store, peer: &Peer) -> Result<()> {
 
 fn validate_peer(store: &Arc<Mutex<Store>>, peer: &Peer) -> Result<()> {
     let mut candidate = store.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let known = candidate
+        .peers
+        .iter()
+        .any(|p| p.name == peer.name && p.owner_pk == peer.owner_pk);
+    if !known {
+        refuse_command_name(&peer.name.0, "the other machine")?;
+    }
     update_peer(&mut candidate, peer)
 }
 
@@ -617,6 +636,35 @@ mod tests {
         );
         assert_eq!(b.lock().unwrap().peers.len(), 1);
         task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn listener_refuses_a_new_remote_peer_named_like_a_command() {
+        // Drive the handshake directly, as an older or other client would,
+        // bypassing the joiner's own name check: the listener must refuse to
+        // trust a new peer whose name collides with an owner command.
+        let (_a_dir, a) = test_store("laptop", 1);
+        let (_b_dir, b) = test_store("status", 2);
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        let a_run = a.clone();
+        let a_addr = addr.clone();
+        let task = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut progress = Progress::default();
+            let result = handshake_listen(a_run, stream, "phrase", &a_addr, &mut progress).await;
+            let err = result.unwrap_err().to_string();
+            assert!(err.contains("status") && err.contains("command"), "{err}");
+        });
+        let stream = TcpStream::connect(&addr).await.unwrap();
+        let attempt = join_attempt(b.clone(), stream, "phrase", &addr, "127.0.0.1:9").await;
+        assert!(attempt.result.is_err());
+        task.await.unwrap();
+        assert!(
+            a.lock().unwrap().peers.is_empty(),
+            "listener saved no trust"
+        );
+        assert!(b.lock().unwrap().peers.is_empty(), "joiner saved no trust");
     }
 
     #[test]

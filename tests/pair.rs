@@ -109,3 +109,35 @@ fn hostname_default_is_sanitized_into_a_valid_body_name() {
         );
     }
 }
+
+#[tokio::test]
+async fn new_pairing_refuses_a_machine_named_like_an_owner_command() {
+    // Choosing a command name for this machine is refused up front.
+    let a = TestDaemon::spawn_named("laptop").await;
+    let err = a
+        .rpc(json!({"op":"pair_start","name":"status"}))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("status") && err.contains("command"), "{err}");
+
+    // A peer that announces a command name is refused by this machine, and
+    // neither side saves the pairing.
+    let listener = TestDaemon::spawn_named("laptop").await;
+    let joiner = TestDaemon::spawn_named("pin").await;
+    let phrase = listener.rpc(json!({"op":"pair_start"})).await.unwrap()["phrase"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(joiner
+        .rpc(json!({"op":"pair_join","phrase": phrase}))
+        .await
+        .is_err());
+    for d in [&listener, &joiner] {
+        let status = d.rpc(json!({"op":"status"})).await.unwrap();
+        assert!(
+            status["peers"].as_array().unwrap().is_empty(),
+            "no pairing may be saved: {status}"
+        );
+    }
+}

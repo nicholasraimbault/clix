@@ -604,6 +604,7 @@ fn apply_body_name(store: &Arc<Mutex<Store>>, name: Option<&str>) -> Result<()> 
     let mut s = lock_store(store);
     let name = name.unwrap_or(&s.body_name).to_string();
     pair::validate_name(&name)?;
+    pair::refuse_command_name(&name, "this machine")?;
     if name != s.body_name && (!s.peers.is_empty() || !s.jobs.is_empty() || !s.grants.is_empty()) {
         return Err(ClixError::Usage(
             "cannot rename a body after pairing or granting tools".into(),
