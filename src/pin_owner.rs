@@ -22,6 +22,8 @@ fn field<'a>(request: &'a Value, name: &str) -> Result<&'a str> {
 
 pub(crate) fn request(command: &PinCommand) -> Value {
     match command {
+        PinCommand::On => json!({"op":"pin_on"}),
+        PinCommand::Off => json!({"op":"pin_off"}),
         PinCommand::Sync { body } => json!({"op":"pin_sync","body":body}),
         PinCommand::Conflicts { body } => json!({"op":"pin_conflicts","body":body}),
         PinCommand::TakePeer { body, path, token } => {
@@ -45,6 +47,20 @@ pub(crate) fn request(command: &PinCommand) -> Value {
 
 pub(crate) async fn rpc(store: &Arc<Mutex<Store>>, request: Value) -> Result<Value> {
     match field(&request, "op")? {
+        op @ ("pin_on" | "pin_off") => {
+            let enabled = op == "pin_on";
+            let mut s = store.lock().unwrap_or_else(|e| e.into_inner());
+            if enabled {
+                // Turning pin on prepares the tree it opts into, as the first
+                // sync would; pairing no longer creates it while pin is off.
+                std::fs::create_dir_all(pin::pin_root(&s))?;
+            }
+            s.update(|s| {
+                s.pin_enabled = enabled;
+                Ok(())
+            })?;
+            Ok(json!({"ok":true,"pin_enabled":enabled,"body":s.body_name}))
+        }
         "pin_sync" => Ok(serde_json::to_value(
             pin::owner_pin_sync(store, field(&request, "body")?).await?,
         )?),

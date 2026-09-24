@@ -181,6 +181,8 @@ async fn handle_rpc(store: &Arc<Mutex<Store>>, mesh: &MeshHandle, req: Value) ->
         | "pin_recovery_discard"
         | "pin_conflicts"
         | "pin_take_peer"
+        | "pin_on"
+        | "pin_off"
         | "pin_sync" => crate::pin_owner::rpc(store, req).await,
         "storage_prune" => {
             let keep = req
@@ -568,6 +570,7 @@ fn rpc_status(store: &Arc<Mutex<Store>>, mesh: &MeshHandle) -> Result<Value> {
     Ok(json!({
         "body": store.body_name,
         "peers": store.peers,
+        "pin_enabled": store.pin_enabled,
         "mesh_addr": mesh.addr(),
         "outbound_requests": store.outbound_requests,
         "history":crate::history::diagnostics(&store),
@@ -992,6 +995,14 @@ pub(crate) fn emit_rpc(cmd: &Cmd, v: &Value) -> Result<()> {
             }
             let addr = v["mesh_addr"].as_str().filter(|s| !s.is_empty());
             println!("mesh: {}", addr.unwrap_or("offline"));
+            println!(
+                "pin: {}",
+                if v["pin_enabled"] == true {
+                    "on"
+                } else {
+                    "off (clix pin on to sync ~/src)"
+                }
+            );
             if let Some(peers) = v["peers"].as_array() {
                 for peer in peers {
                     println!(

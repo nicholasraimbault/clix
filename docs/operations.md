@@ -47,13 +47,25 @@ happens on the machine owning that tool.
 
 ## Pin conflicts
 
-Pin synchronization is bidirectional, including deletion after a shared
-baseline. It runs at pairing, before remote execution, and explicitly:
+Pin is opt-in per machine and off by default. Turn it on with `clix pin on`
+(and off with `clix pin off`); `clix status` shows the current state. While pin
+is off, pairing does not synchronize `~/src`, `clix pin sync` is refused, and
+peers cannot list, read or write this machine's pin tree. An upgraded machine
+starts with pin off; run `clix pin on` on both machines to resume syncing.
+
+With pin on for both machines, synchronization is bidirectional, including
+deletion after a shared baseline. It runs at pairing and explicitly; it no
+longer runs before remote execution, so a conflict never blocks a remote run:
 
 ```sh
 clix pin sync BODY
 clix pin conflicts BODY
 ```
+
+The receiver enforces the same honest-conflict rule as the initiator: a peer's
+write is accepted only when this machine's recorded baseline matches what the
+peer expected, so a local edit made since the last sync cannot be overwritten.
+Pin never synchronizes `.git/hooks`.
 
 A failed sync exits nonzero. Conflict inspection reads the named peer now;
 an unreachable peer is an error, not a cached decision. To adopt the inspected

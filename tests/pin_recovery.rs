@@ -321,6 +321,9 @@ async fn network() -> Network {
     b.body_name = "beta".into();
     a.pin_dir = Some(ap.clone());
     b.pin_dir = Some(bp.clone());
+    // Pin is opt-in; this fixture exercises pin recovery, so both opt in.
+    a.pin_enabled = true;
+    b.pin_enabled = true;
     let am = clix::MeshListener::bind("127.0.0.1:0").await.unwrap();
     let bm = clix::MeshListener::bind("127.0.0.1:0").await.unwrap();
     let apk = ed25519_dalek::SigningKey::from_bytes(a.owner_sk.as_slice().try_into().unwrap())

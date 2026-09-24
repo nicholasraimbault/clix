@@ -152,19 +152,17 @@ async fn pin_conflict_does_not_block_or_corrupt_mesh_exec() {
     assert_eq!(response["status"], "done", "{response}");
     assert_eq!(response["exit"], 0, "{response}");
     let done: Job = serde_json::from_value(response["job"].clone()).unwrap();
-    // The verified runner result replicates to the observer.
+    // The verified runner result replicates to the observer. Wait for the
+    // runner-signed fact itself, not merely the job's first (origin) entry.
     for daemon in [&runner, &observer] {
-        let log = wait_log(daemon, "runner result", |log| {
-            logged_job(log, &done.id).is_some()
+        wait_log(daemon, "verified runner result", |log| {
+            log["views"].as_array().is_some_and(|views| {
+                views.iter().any(|v| {
+                    v["job"]["id"] == done.id && v["provenance"] == "verified runner result"
+                })
+            })
         })
         .await;
-        let view = log["views"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|v| v["job"]["id"] == done.id)
-            .unwrap();
-        assert_eq!(view["provenance"], "verified runner result", "{view}");
     }
     // Neither side's pinned file was touched by the run.
     assert_eq!(

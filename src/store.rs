@@ -61,6 +61,11 @@ pub struct Store {
     pub history_pruned: BTreeSet<String>,
     #[serde(default)]
     pub format_version: u32,
+    /// Pin is opt-in per machine (`clix pin on`). While off, pairing does not
+    /// synchronize `~/src`, `clix pin sync` is refused, and peers cannot list,
+    /// read or write this machine's pin tree. Absent in older states → off.
+    #[serde(default)]
+    pub pin_enabled: bool,
     /// Test/override pin tree. Production uses `CLIX_PIN` or `~/src`.
     #[serde(skip)]
     pub pin_dir: Option<PathBuf>,
@@ -140,6 +145,7 @@ impl Store {
                 output_pruned: BTreeSet::new(),
                 history_pruned: BTreeSet::new(),
                 format_version: 1,
+                pin_enabled: false,
                 pin_dir: None,
             };
             crate::history::refresh_owned(&mut store, None)?;

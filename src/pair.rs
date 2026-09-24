@@ -429,11 +429,15 @@ async fn handshake_join(
 
 /// Trust has already been established. A pin conflict does not undo pairing.
 pub(crate) async fn pin_after_pair(store: &Arc<Mutex<Store>>, peer: &Peer) -> Result<()> {
-    let sk = store
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .owner_sk
-        .clone();
+    let sk = {
+        let s = store.lock().unwrap_or_else(|e| e.into_inner());
+        // Pin is opt-in: pairing never synchronizes ~/src unless this machine
+        // has pin turned on.
+        if !s.pin_enabled {
+            return Ok(());
+        }
+        s.owner_sk.clone()
+    };
     crate::pin::sync_after_pair(store, &sk, peer)
         .await
         .map_err(|e| {

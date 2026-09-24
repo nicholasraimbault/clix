@@ -179,6 +179,15 @@ impl TestDaemon {
     }
 }
 
+/// Pair two daemons and opt both into pin (pin is off by default).
+#[allow(dead_code)]
+pub async fn paired_pinned(a: &str, b: &str) -> (TestDaemon, TestDaemon) {
+    let (left, right) = paired(a, b).await;
+    left.rpc(json!({"op": "pin_on"})).await.unwrap();
+    right.rpc(json!({"op": "pin_on"})).await.unwrap();
+    (left, right)
+}
+
 #[allow(dead_code)]
 pub async fn paired(a: &str, b: &str) -> (TestDaemon, TestDaemon) {
     let left = TestDaemon::spawn_named(a).await;

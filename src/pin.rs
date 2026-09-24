@@ -61,6 +61,18 @@ fn key(pk: &[u8]) -> String {
 fn lock(s: &Arc<Mutex<Store>>) -> std::sync::MutexGuard<'_, Store> {
     s.lock().unwrap_or_else(|e| e.into_inner())
 }
+
+/// Pin is opt-in per machine. Every entry point that synchronizes, or that lets
+/// a peer list, read or write this machine's pin tree, checks this first.
+pub(crate) fn ensure_enabled(s: &Store) -> Result<()> {
+    if !s.pin_enabled {
+        return Err(ClixError::Usage(format!(
+            "pin is off on {}; enable it there with clix pin on",
+            s.body_name
+        )));
+    }
+    Ok(())
+}
 fn conflict(path: &str, a: &str, b: &str) -> ClixError {
     ClixError::PinConflict {
         path: format!("src/{path}"),
@@ -777,12 +789,17 @@ pub async fn sync_after_pair(store: &Arc<Mutex<Store>>, sk: &[u8], peer: &Peer) 
 pub(crate) async fn rpc_list_async(store: &Arc<Mutex<Store>>, peer: &Peer) -> Result<Value> {
     let (root, baseline) = {
         let s = lock(store);
+        ensure_enabled(&s)?;
         (pin_root(&s), baseline(&s, &peer.owner_pk))
     };
     blocking(move || Ok(json!({"files":Tree::open(&root)?.scan()?,"baseline":baseline}))).await
 }
 pub(crate) async fn rpc_get_async(store: &Arc<Mutex<Store>>, request: &Value) -> Result<Value> {
-    let root = pin_root(&lock(store));
+    let root = {
+        let s = lock(store);
+        ensure_enabled(&s)?;
+        pin_root(&s)
+    };
     let request = request.clone();
     blocking(move || {
         let path = request
@@ -822,6 +839,7 @@ pub(crate) async fn rpc_commit_async(
     blocking(move || rpc_commit(&mut lock(&store), &peer, &request)).await
 }
 pub(crate) fn rpc_put(s: &Store, peer: &Peer, req: &Value) -> Result<Value> {
+    ensure_enabled(s)?;
     let path = req
         .get("path")
         .and_then(Value::as_str)
@@ -865,6 +883,7 @@ pub(crate) fn rpc_put(s: &Store, peer: &Peer, req: &Value) -> Result<Value> {
     Ok(json!({"ok":true}))
 }
 pub(crate) fn rpc_commit(s: &mut Store, peer: &Peer, req: &Value) -> Result<Value> {
+    ensure_enabled(s)?;
     let manifest: Manifest =
         serde_json::from_value(req.get("manifest").cloned().unwrap_or(Value::Null))?;
     if Tree::open(&pin_root(s))?.scan()? != manifest {
@@ -1703,6 +1722,7 @@ fn conflict_snapshot(
 }
 fn owner_peer(store: &Arc<Mutex<Store>>, name: &str) -> Result<(Peer, Vec<u8>, PathBuf, Manifest)> {
     let s = lock(store);
+    ensure_enabled(&s)?;
     let peer = s
         .peers
         .iter()

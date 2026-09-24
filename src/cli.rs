@@ -151,6 +151,10 @@ pub enum StorageCommand {
 
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
 pub enum PinCommand {
+    /// Turn pin on for this machine (opt-in). Peers may then sync ~/src with it.
+    On,
+    /// Turn pin off for this machine. Pairing and peers stop touching ~/src.
+    Off,
     /// Synchronize pins with the named machine without running a tool.
     Sync { body: String },
     /// Inspect current conflicts with the named machine.

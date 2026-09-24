@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use clix::{sync_after_pair, BodyId, Peer, Store};
-use common::{paired, TestDaemon};
+use common::{paired, paired_pinned, TestDaemon};
 use serde_json::json;
 
 fn write_rel(root: &Path, rel: &str, contents: &str) {
@@ -126,7 +126,7 @@ async fn unknown_peer_on_pair_is_denied() {
 
 #[tokio::test]
 async fn mesh_one_side_edit_copies() {
-    let (laptop, server) = paired("laptop", "server").await;
+    let (laptop, server) = paired_pinned("laptop", "server").await;
     write_rel(&laptop.pin_dir(), "foo.rs", "v1");
     server
         .rpc(json!({"op": "pin_sync", "body": "laptop"}))
@@ -290,7 +290,7 @@ fn a_third_peer_does_not_replace_the_first_peers_baseline() {
 
 #[tokio::test]
 async fn network_pin_preserves_executable_mode_and_binary_content() {
-    let (laptop, server) = paired("laptop", "server").await;
+    let (laptop, server) = paired_pinned("laptop", "server").await;
     fs::write(laptop.pin_dir().join("binary"), [0, 255, 128]).unwrap();
     fs::set_permissions(
         laptop.pin_dir().join("binary"),
@@ -396,7 +396,7 @@ async fn mesh_exec_runs_despite_a_pin_conflict() {
     // Remote execution is no longer gated on a pin sync: a real ~/src can
     // exceed the pin scan limits or hold a conflict without breaking exec.
     // Pin honesty is still enforced by an explicit sync (below).
-    let (laptop, server) = paired("laptop", "server").await;
+    let (laptop, server) = paired_pinned("laptop", "server").await;
     write_rel(&laptop.pin_dir(), "foo.rs", "laptop wrote this");
     write_rel(&server.pin_dir(), "foo.rs", "server wrote this");
     laptop
@@ -427,7 +427,7 @@ async fn receiver_rejects_a_pin_put_that_diverges_from_its_baseline() {
     // initiating planner. A paired peer that reads the receiver's current
     // fingerprint (pin_list) and writes with expected=current must not be able
     // to overwrite a local edit the receiver made since the last sync.
-    let (laptop, server) = paired("laptop", "server").await;
+    let (laptop, server) = paired_pinned("laptop", "server").await;
     // Establish a shared baseline for notes.txt.
     write_rel(&laptop.pin_dir(), "notes.txt", "v1\n");
     server
@@ -484,7 +484,7 @@ fn hex_of(bytes: &[u8]) -> String {
 
 #[tokio::test]
 async fn pin_excludes_git_hooks_from_sync_and_incoming_writes() {
-    let (laptop, server) = paired("laptop", "server").await;
+    let (laptop, server) = paired_pinned("laptop", "server").await;
     // An existing hook on the laptop is not replicated by a sync.
     write_rel(
         &laptop.pin_dir(),
@@ -523,4 +523,65 @@ async fn pin_excludes_git_hooks_from_sync_and_incoming_writes() {
         fs::read_to_string(laptop.pin_dir().join(".git/hooks/pre-commit")).unwrap(),
         "#!/bin/sh\ntrue\n"
     );
+}
+
+#[tokio::test]
+async fn pin_is_opt_in_and_off_by_default() {
+    let laptop = TestDaemon::spawn_named("laptop").await;
+    let server = TestDaemon::spawn_named("server").await;
+    // A file exists before pairing; with pin off it must not be copied.
+    write_rel(&laptop.pin_dir(), "early.txt", "before pairing\n");
+    let phrase = laptop.rpc(json!({"op": "pair_start"})).await.unwrap()["phrase"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    server
+        .rpc(json!({"op": "pair_join", "phrase": phrase}))
+        .await
+        .unwrap();
+    assert!(
+        !server.pin_dir().join("early.txt").exists(),
+        "pairing must not sync ~/src while pin is off"
+    );
+    // An explicit sync is refused while pin is off.
+    let off = server
+        .rpc(json!({"op": "pin_sync", "body": "laptop"}))
+        .await;
+    assert!(
+        off.is_err(),
+        "sync must be refused while pin is off: {off:?}"
+    );
+    // A peer cannot read the manifest of a machine with pin off.
+    let listing = server
+        .mesh_raw(laptop.mesh_addr(), json!({"op": "pin_list"}))
+        .await;
+    assert!(
+        listing.is_err(),
+        "pin_list must be refused while pin is off"
+    );
+    // Opting in on both machines enables sync.
+    laptop.rpc(json!({"op": "pin_on"})).await.unwrap();
+    server.rpc(json!({"op": "pin_on"})).await.unwrap();
+    let synced = server
+        .rpc(json!({"op": "pin_sync", "body": "laptop"}))
+        .await
+        .unwrap();
+    assert_eq!(synced["synced"], true, "{synced}");
+    assert_eq!(
+        fs::read_to_string(server.pin_dir().join("early.txt")).unwrap(),
+        "before pairing\n"
+    );
+}
+
+#[tokio::test]
+async fn status_reports_pin_state() {
+    let daemon = TestDaemon::spawn_named("laptop").await;
+    let status = daemon.rpc(json!({"op": "status"})).await.unwrap();
+    assert_eq!(
+        status["pin_enabled"], false,
+        "pin is off by default: {status}"
+    );
+    daemon.rpc(json!({"op": "pin_on"})).await.unwrap();
+    let status = daemon.rpc(json!({"op": "status"})).await.unwrap();
+    assert_eq!(status["pin_enabled"], true, "{status}");
 }

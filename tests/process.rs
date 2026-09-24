@@ -600,6 +600,9 @@ fn owner_command_names_do_not_make_paired_bodies_unusable_after_restart() {
 #[test]
 fn owner_cli_reviews_restores_exports_and_discards_retained_pin_versions() {
     let (laptop, server) = paired();
+    // Pin is opt-in; this test exercises pin sync, so both machines opt in.
+    laptop.rpc(json!({"op":"pin_on"}));
+    server.rpc(json!({"op":"pin_on"}));
     let live = laptop.home.path().join("src/note");
     let peer = server.home.path().join("src/note");
     fs::write(&live, b"original\0bytes").unwrap();
@@ -680,6 +683,9 @@ fn owner_cli_reviews_restores_exports_and_discards_retained_pin_versions() {
 #[test]
 fn owner_cli_takes_only_the_fresh_peer_conflict_without_running_a_tool() {
     let (laptop, server) = paired();
+    // Pin is opt-in; this test exercises pin sync, so both machines opt in.
+    laptop.rpc(json!({"op":"pin_on"}));
+    server.rpc(json!({"op":"pin_on"}));
     let live = laptop.home.path().join("src/conflict");
     let peer = server.home.path().join("src/conflict");
     fs::write(&live, b"baseline").unwrap();
