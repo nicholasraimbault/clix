@@ -1,9 +1,39 @@
 # Review fixes plan
 
+## Implementation status (2026-09-24)
+
+The owner approved every owner decision below ("all you found") and asked for
+the work on master. Packets 1, 2, 3, 4, 6, 7, 10, 11 and 12 are implemented, in
+commits `ef95714`..`6ffc963` on top of `3d21163`.
+`cargo test --locked --no-fail-fast` passes 225 tests with no failures, and
+clippy and fmt are clean. The accepted design records the implemented
+amendments.
+
+- **Packet 6** was narrowed to the capacity constants and a boundary test. Keeping
+  denials from filling the execution cap needs the receipt-retirement work,
+  because a denied signed admission already has a certificate and history entry.
+- **Packet 10** exposed a limit. The receiver now checks each write against its
+  own baseline. But `pin_commit` records the receiver's current tree as the new
+  baseline without binding it to the session's writes. So a paired machine that
+  deliberately deviates from the sync protocol can still replace a file. The
+  displaced version is kept in `.clix-recovery`. Closing this needs
+  session-bound commits, which is follow-up work. Pin is now off by default, and
+  enabling it trusts paired machines with write access to `~/src`.
+- **Not implemented:** packet 5 (version handshake), packet 8 (receipt window and
+  denial handling), packet 9 (storage split) and packet 13 (release binaries).
+  Each changes a signed wire format, migrates stored state, or needs a published
+  release. Proving each needs mixed-version two-machine runs or a real install.
+  The design keeps its original text for these.
+- **Proof:** loopback and process tests only so far. Two-machine proof on the
+  laptop and server, and the upgrade of the installed services, are recorded
+  separately when done.
+
+---
+
 An outside reviewer read only `README.md` and `plans/current.md` (not the code)
 and flagged eight suspected issues plus two later items. This document checks
-each against the code at the current revision and lays out a fix plan. **This is
-planning only. No code was changed, nothing was committed or pushed.**
+each against the code at the current revision and lays out a fix plan. The
+sections below are the plan as written before implementation.
 
 - Revision: `3d21163503ec48faf3e9742ed6028410d3dd5aac`, master, clean tree.
 - Baseline: `cargo test --locked` = 196 passed, 0 failed, 0 ignored (log in the

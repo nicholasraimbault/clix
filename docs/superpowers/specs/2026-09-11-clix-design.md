@@ -10,6 +10,42 @@ You (or the agent) only get tools you added on that box. Not a login. Not a sile
 
 **Name:** Clix, because the devices click. Cloud Unix is just the etymology.
 
+## Amendments (2026-09-24)
+
+The owner approved these changes to this design on 2026-09-24 ("all you found",
+after the [review-fix plan](../../../plans/2026-09-24-review-fixes.md)). Where an
+amendment conflicts with text below, the amendment wins. Only implemented
+amendments are listed here.
+
+- **Grants name their machines.** `clix add <tool>` requires `--allow <body>`,
+  `--server`, or `--all`; there is no implicit every-body default. This replaces
+  "`clix add adb` with no extra flags: every paired body… All boxes, all the
+  time" in v0 step 2 and the bare `clix add adb` in the success criteria, which
+  now read `clix add adb --allow server` (or `--all`).
+- **Native "Allow" grants the requester.** The Allow action persists but is
+  scoped to the requesting body, not all paired bodies. Broad grants are made
+  in the terminal with `clix add --all`. Approving a request never silently
+  replaces a different existing grant for that tool.
+- **Argument limits (from Later).** A grant may carry exact allowed argument
+  lists on the one grant object (`clix add adb --allow server --only devices`).
+  Exact match, not prefix. A second allow-list is still cheating; this is a
+  field of the same grant.
+- **Pin is opt-in.** `~/src` is shared only after `clix pin on` on a machine.
+  This replaces "Defaults on. `~/src` pins." under Pairing and the pin part of
+  "One package, pair, defaults." Pin syncs at pairing (when on) and on
+  `clix pin sync`, not before remote execution. It never syncs anything inside
+  a `.git` directory. Enabling pin trusts paired bodies with write access to
+  `~/src`; displaced versions are retained in `.clix-recovery`.
+- **Explicit destination.** `clix @<body> <cmd>` (and `clix -- <body> <cmd>`)
+  always names the body. New pairings refuse a body name that matches an owner
+  command.
+- **Vocabulary.** User-facing text says *machine* for a body and *grant* for a
+  hand; `clix grants` is `clix hands`.
+
+Approved but not implemented yet, so the text below still stands for them: a
+bounded replay-receipt window (would bound "Wait is wait"), protocol version
+negotiation, and published release binaries.
+
 The cloud is the Linux user. Devices are hands and cache. No vendor VM.
 
 ## Problem
@@ -55,7 +91,7 @@ Same command for you, for scripts, and for the agent.
 
 Clix identity is not your Tailscale account.
 
-v0: a short phrase. Type it on the second box. Defaults on. `~/src` pins.
+v0: a short phrase. Type it on the second box. Defaults on. `~/src` pins. *(Amended 2026-09-24: pin is opt-in; see Amendments.)*
 
 Later on Andrix: QR and phrase on the same card. Phone scans. Headless box still types.
 
@@ -94,7 +130,7 @@ v0 does not wait on Andrix.
 Two Arch machines.
 
 1. Sidecar per box. Pair with a phrase.
-2. On each box, `clix add <tool>` grants that binary (on PATH or a path you give). `clix remove <tool>` revokes. `clix hands` lists grants. Grant and revoke only on that box, as you, not from the agent over the mesh. `clix add adb` with no extra flags: every paired body, until you `clix remove adb`. All boxes, all the time.
+2. On each box, `clix add <tool>` grants that binary (on PATH or a path you give). `clix remove <tool>` revokes. `clix hands` lists grants. Grant and revoke only on that box, as you, not from the agent over the mesh. `clix add adb` with no extra flags: every paired body, until you `clix remove adb`. All boxes, all the time. *(Amended 2026-09-24: a grant must name `--allow`/`--server`/`--all`; see Amendments.)*
 
 Narrow it when you want:
 

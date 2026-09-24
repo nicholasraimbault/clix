@@ -50,21 +50,53 @@ At 10,000 synthetic jobs, the measured final release inspected one job in about
 grant changes still rewrote about 17 MB. These are measured costs, not production
 scale or indefinite-operation guarantees.
 
+## Review-fix pass (2026-09-24)
+
+An outside review was checked against the code. The owner-approved fixes are
+recorded in the [review-fix plan](2026-09-24-review-fixes.md) and in the design's
+[amendments](../docs/superpowers/specs/2026-09-11-clix-design.md#amendments-2026-09-24):
+
+- Grants must name their machines.
+- Native Allow grants only the requester, and approvals never silently replace
+  a different grant.
+- A grant can be limited to exact argument lists (`--only`).
+- State is written as format 2.
+- Pin is opt-in, is no longer coupled to remote execution, never syncs `.git`,
+  and the receiver checks writes against its own baseline.
+- `clix @machine` addressing works, and new pairings refuse command names.
+- Install is hardened: a hostname with dots no longer breaks startup,
+  notifications and the tray are detected at runtime, and lingering is advised.
+- Wording now uses machine and grant.
+
+225 tests pass (`cargo test --locked --no-fail-fast`), and fmt and clippy are
+clean. These results come from loopback and process tests. Two-machine proof of
+this pass, and the upgrade of the installed services, have not been recorded
+yet. The standing production grant above predates this pass.
+
 ## Still incomplete or unproved
 
 - Physical lid suspend/resume, actual desktop notification/tray interaction,
   sustained daily use and the accepted specifically **two-Arch** milestone.
   An Arch-derived/Debian pair and daemon restart do not substitute for them.
 - The laptop owner UID remains trusted. Attribution is to a paired body, not
-  human versus agent sharing it. Tool arguments and process descendants are not
-  sandboxed. The owner's [scope decision](2026-09-12-product-quality.md) limits
-  remote laptop access; server development-account isolation is outside scope.
+  human versus agent sharing it. A grant can now be limited to exact argument
+  lists (`clix add --only`), but a grant without one accepts any arguments, and
+  process descendants are not sandboxed. The owner's
+  [scope decision](2026-09-12-product-quality.md) limits remote laptop access;
+  server development-account isolation is outside scope.
 - Finite replay-receipt capacity eventually stops admission. Output pruning
   keeps receipts; it is not indefinite garbage collection. Full-state rewrites
   and large-log memory costs remain.
-- Pin sync runs at pairing, before remote execution and explicitly, not as a
-  continuous background replica. File/type/tree limits, retained-inode writers
-  and power-loss durability have not been exhaustively proved.
+- Pin is opt-in (`clix pin on`) and syncs at pairing and explicitly, not before
+  remote execution and not as a continuous background replica. The receiver
+  checks each write against its own baseline, but a paired machine that
+  deliberately deviates from the protocol (commit, then write) can still
+  replace a file, with the displaced version retained; session-bound commits
+  are follow-up work. File/type/tree limits, retained-inode writers and
+  power-loss durability have not been exhaustively proved.
+- Not yet implemented from the review: protocol version negotiation, a bounded
+  replay-receipt window (including keeping denied callers from filling the
+  execution cap), splitting state storage, and published release binaries.
 
 **Verdict: trust the tested granted-hand scope; keep the code.** The shared
 history and owner recovery objects now exist. The whole accepted v0 remains
