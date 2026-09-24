@@ -11,6 +11,16 @@ pub(crate) const STATE_BYTES: usize = 128 * 1024 * 1024;
 const OUTPUT_BYTES: usize = 16 * 1024 * 1024;
 const COMPLETION_RESERVE: usize = 2 * 1024 * 1024;
 
+// Admission caps. Single source of truth for both `prepare` (enforcement) and
+// `status` (reporting), so the two can never drift.
+pub(crate) const MAX_JOBS: usize = 10_000;
+pub(crate) const MAX_HISTORY: usize = 30_000;
+pub(crate) const MAX_REQUEST_RECEIPTS: usize = 10_000;
+pub(crate) const MAX_PENDING_REQUESTS: usize = 1024;
+pub(crate) const MAX_OUTBOUND_REQUESTS: usize = 1024;
+pub(crate) const MAX_PEERS: usize = 64;
+pub(crate) const MAX_GRANTS: usize = 256;
+
 fn capacity(message: &str) -> ClixError {
     ClixError::Capacity(message.into())
 }
@@ -163,33 +173,43 @@ fn count_limit(name: &str, next: usize, old: usize, max: usize) -> Result<()> {
 }
 
 pub(crate) fn prepare(next: &mut Store, old: &Store) -> Result<()> {
-    count_limit("execution receipt", next.jobs.len(), old.jobs.len(), 10_000)?;
+    count_limit(
+        "execution receipt",
+        next.jobs.len(),
+        old.jobs.len(),
+        MAX_JOBS,
+    )?;
     count_limit(
         "history record",
         next.history.entries.len(),
         old.history.entries.len(),
-        30_000,
+        MAX_HISTORY,
     )?;
     count_limit(
         "request delivery receipt",
         next.request_receipts.len(),
         old.request_receipts.len(),
-        10_000,
+        MAX_REQUEST_RECEIPTS,
     )?;
     count_limit(
         "pending request",
         next.requests.len(),
         old.requests.len(),
-        1024,
+        MAX_PENDING_REQUESTS,
     )?;
     count_limit(
         "outbound request",
         next.outbound_requests.len(),
         old.outbound_requests.len(),
-        1024,
+        MAX_OUTBOUND_REQUESTS,
     )?;
-    count_limit("paired machine", next.peers.len(), old.peers.len(), 64)?;
-    count_limit("grant", next.grants.len(), old.grants.len(), 256)?;
+    count_limit(
+        "paired machine",
+        next.peers.len(),
+        old.peers.len(),
+        MAX_PEERS,
+    )?;
+    count_limit("grant", next.grants.len(), old.grants.len(), MAX_GRANTS)?;
     if output_bytes(next) > OUTPUT_BYTES {
         for (_, payload, _) in candidates(next) {
             if output_bytes(next) <= OUTPUT_BYTES {
@@ -305,9 +325,9 @@ pub(crate) fn reserve_completion(store: &Store, old: &Store, encoded_bytes: usiz
 pub(crate) fn status(store: &Store) -> Value {
     json!({"state_limit_bytes":STATE_BYTES,"retained_output_limit_bytes":OUTPUT_BYTES,
         "retained_output_bytes":output_bytes(store),"admitted_job_records":store.jobs.len(),
-        "execution_receipt_limit":10000,"request_receipts":store.request_receipts.len(),
-        "request_receipt_limit":10000,"history_records":store.history.entries.len(),
-        "history_record_limit":30000,"storage_error":store.storage_error(),
+        "execution_receipt_limit":MAX_JOBS,"request_receipts":store.request_receipts.len(),
+        "request_receipt_limit":MAX_REQUEST_RECEIPTS,"history_records":store.history.entries.len(),
+        "history_record_limit":MAX_HISTORY,"storage_error":store.storage_error(),
         "running_children_limit":crate::limits::CHILDREN,"outbound_attempt_limit":crate::limits::DISPATCH,
         "pruning":"Only saved output is pruned; invocation and delivery receipts remain to reject replays."})
 }

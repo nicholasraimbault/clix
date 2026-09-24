@@ -260,3 +260,48 @@ fn pruning_across_decimal_sequence_boundaries_cannot_increase_charge() {
         );
     }
 }
+
+#[test]
+fn execution_receipt_cap_refuses_new_admissions_at_the_limit() {
+    let (_dir, mut store) = fixture("origin", 1);
+    // Fill to exactly the cap in one durable update.
+    store
+        .update(|s| {
+            for n in 0..storage::MAX_JOBS {
+                s.jobs.push(Job {
+                    id: format!("job-{n}"),
+                    from: BodyId("origin".into()),
+                    body: BodyId("origin".into()),
+                    argv: vec!["true".into()],
+                    status: JobStatus::Done { exit: 0 },
+                    stdout: vec![],
+                    stderr: vec![],
+                });
+            }
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(store.jobs.len(), storage::MAX_JOBS);
+    // status reports the same limit prepare enforces (single source of truth).
+    assert_eq!(
+        storage::status(&store)["execution_receipt_limit"],
+        serde_json::json!(storage::MAX_JOBS)
+    );
+    // One more row is refused as a capacity error, state unchanged.
+    let error = store
+        .update(|s| {
+            s.jobs.push(Job {
+                id: "one-too-many".into(),
+                from: BodyId("origin".into()),
+                body: BodyId("origin".into()),
+                argv: vec!["true".into()],
+                status: JobStatus::Done { exit: 0 },
+                stdout: vec![],
+                stderr: vec![],
+            });
+            Ok(())
+        })
+        .unwrap_err();
+    assert!(matches!(error, ClixError::Capacity(_)), "{error}");
+    assert_eq!(store.jobs.len(), storage::MAX_JOBS);
+}
