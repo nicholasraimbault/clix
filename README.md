@@ -11,132 +11,150 @@ You can limit a grant to particular paired machines, set an expiry, or allow
 one successful run. Use the same commands yourself, in scripts, or through an
 agent.
 
-For example, after pairing and granting `adb` on the laptop, run this from the server:
+You choose each machine's name when you pair it. In the example below,
+`laptop` is a machine that has `adb`, and `server` is a machine where you run
+commands. After you grant `adb` on `laptop`, run this on `server`:
 
 ```sh
 clix laptop adb devices
 ```
 
-That runs the laptop's `adb` and returns its output to your normal shell.
-The command stays on the machine you named. You add or revoke a **grant** on the
-machine that has the tool. Nothing granted means nothing runs through Clix.
+That runs `adb` on the machine named `laptop` and returns its output to your
+normal shell. The command stays on the machine you named. You add or revoke a
+**grant** on the machine that has the tool. Nothing granted means nothing runs
+through Clix.
 
-Two terms from the design appear in a few command names: a **hand** is a grant
-(`clix hands`, also `clix grants`), and a **body** is a paired machine. This
-README says *grant* and *machine* everywhere else.
+A few commands still use older words. `clix hands` lists grants, and so does
+`clix grants`. In those commands a body is a paired machine. This README says
+*grant* and *machine*.
 
-**Experimental, Linux today.** Tested on a real CachyOS (Arch-derived) laptop
-and Debian 13.6 server, including denial, single-use grants and delivery after
-daemon restarts. The full v0 design is unfinished. See
-[current proof and remaining work](plans/current.md).
+**Experimental, Linux today.** Tested between a CachyOS (Arch-derived) laptop
+and a Debian 13.6 server: a refused command, a single-use grant, and delivery
+after the service restarted. The design is unfinished. See
+[what is proved and what is left](plans/current.md).
 
 ## Try it
 
-On each machine, use a Linux Rust toolchain, a C compiler/linker, and a working
-systemd user manager. Build from this checkout, with Cargo's install directory
-on your `PATH`:
+On each machine, install a Linux Rust toolchain, a C compiler and linker, and
+a working systemd user manager. From this checkout, with Cargo's install
+directory on your `PATH`:
 
 ```sh
 cargo install --locked --path .
 clix install
 ```
 
-`clix install` creates and starts a systemd user service pointing at the binary
-you ran; keep that binary in place. Both machines need Tailscale running and
-reachable over their tailnet for pairing and remote work. Local owner controls
-remain available when Tailscale is off. Desktop notifications and the tray use
-the session D-Bus; the terminal commands also work headlessly.
+`clix install` starts a systemd user service that runs the binary you just
+installed. Leave that binary where it is. Pairing and remote commands need
+Tailscale, with the machines able to reach each other. Commands you run on a
+machine itself still work with Tailscale off. Notifications and the tray need
+the session D-Bus. The terminal commands also work without a desktop.
 
-After upgrading the binary, restart the service with
-`systemctl --user restart clix.service`. Upgrade the CLI and daemon together;
-upgrade paired machines together for shared history. Back up Clix's state and
-`~/src/.clix-recovery` before upgrading. Older binaries cannot safely operate on
-the new recovery phases; restoring a pre-upgrade backup also loses later replay
-receipts. See [operation and recovery](docs/operations.md).
+When you replace the binary, restart the service:
 
-**Pin is opt-in:** `~/src` is not shared until you run `clix pin on` on a
-machine. With pin on for both machines, pairing and `clix pin sync` synchronize
-that directory in both directions, including deletions after a shared baseline.
-Review its contents first. A conflict stops the sync with a named path and no
-automatic merge; it does not block remote execution. While pin is off, peers
-cannot list, read or write that machine's `~/src`. Pin never syncs anything
-inside a `.git` directory. Turning pin on trusts the paired machines, and any
-agent using their identity, with write access to `~/src`; displaced versions
-are kept in `~/src/.clix-recovery`. A pin failure after pairing can leave the
-pairing saved; read the error and `clix status` before retrying. See the pin
-limits below.
+```sh
+systemctl --user restart clix.service
+```
 
-For example, first confirm `adb devices` works locally on the laptop. To use
-that installed tool from a server, start on the laptop:
+Upgrade the `clix` command and the service together. If machines share
+history, upgrade them together. Before an upgrade, back up Clix's state and
+`~/src/.clix-recovery`. An older binary cannot use the newer recovery data.
+Restoring a backup from before the upgrade drops receipts recorded after that
+backup. Those receipts are how a repeated run is refused. See
+[operation and recovery](docs/operations.md).
+
+**Sharing `~/src` is off until you turn it on** with `clix pin on`. With pin
+on for both machines, pairing and `clix pin sync` copy that directory both
+ways, including deletions once both sides have the same baseline. Look through
+`~/src` first. If both sides changed the same path, sync stops and names that
+path. It does not merge the files, and a remote command still runs. While pin
+is off, other machines cannot list, read, or write this machine's `~/src`.
+Pin never copies anything inside a `.git` directory. Turning pin on trusts
+every paired machine, and any agent using that machine's identity, with
+write access to `~/src`. Files that get replaced are kept in
+`~/src/.clix-recovery`. If pin fails while pairing, the pairing can still be
+saved. Read the error and `clix status` before you try again. See
+[Pin limits](#pin-limits).
+
+The steps below use the example names from above. First confirm `adb devices`
+works on the machine that has `adb`. On that machine:
 
 ```sh
 clix pair --name laptop
 ```
 
-Keep that command open. On the server, replace `PRINTED-PHRASE` with the phrase
-the laptop displays:
+Keep that command open. On the other machine, replace `PRINTED-PHRASE` with
+the phrase this one displays:
 
 ```sh
 clix pair 'PRINTED-PHRASE' --name server
 clix status
 ```
 
-Then grant the tool locally on the laptop:
+Then grant the tool on the machine named `laptop`:
 
 ```sh
 clix add adb --allow server --only devices
 clix grants
 ```
 
-From the server:
+From the machine named `server`:
 
 ```sh
 clix laptop adb devices
 clix log
 ```
 
-These are example names. Without `--name`, pairing uses the hostname;
-`clix status` shows this machine and its paired names. Use the actual target
-name in remote commands. On this machine, run tools normally.
-`clix @laptop adb devices` always names the machine explicitly, so it works even
-if a machine's name matches a Clix command (`clix -- laptop adb devices` is
-equivalent). These forms preserve tool arguments, including `--no-wait`; place
-Clix's own `--no-wait` first when needed. New pairings refuse a machine name
-that matches a Clix command.
+Without `--name`, pairing uses the hostname. `clix status` shows this machine
+and the names it has paired. Use those names in remote commands. On the
+machine that has a tool, run that tool directly.
+
+`clix @laptop adb devices` is the same run with the machine written out. Use
+that, or `clix -- laptop adb devices`, when the machine's name is also a Clix
+command. A new pairing refuses such a name. Put `--no-wait` before the tool
+name, as in `clix --no-wait laptop adb devices` or
+`clix laptop --no-wait adb devices`. Arguments after the tool name belong to
+the tool.
 
 ## Grants and authority
 
-Every grant names its machines: pass `--allow <machine>` (repeatable),
-`--server` (shorthand for `--allow server`), or `--all` for every paired
-machine, including ones paired later. `clix add` with no scope is an error.
-`--once` permits one successful run; `--for 2h` limits the grant's lifetime.
-`--only ARGS` limits a grant to that exact argument list (repeatable; each value
-is split on spaces; `--only ""` allows no arguments). For example,
-`clix add adb --allow server --only devices` permits `adb devices` and nothing
-else — not `adb shell`, `adb pull …`, or extra options. Without `--only`, the
-granted tool accepts any arguments, with all of that tool's capabilities.
-Revoke a grant on the machine that added it with `clix remove adb`.
-You can also pass its stored executable path, even after that file is deleted.
-A different executable with the same basename is not a matching path.
+A grant has to name which machines may use it. Pass `--allow <machine>` once
+for each machine, `--server` when one of them is named `server`, or `--all`
+for every paired machine, including ones you pair later. `clix add` with no
+scope is an error.
 
-A grant exposes the binary's capabilities under the owner's account. Clix does
-not constrain its arguments or sandbox its subprocesses, files or network access.
-Granting a shell, interpreter or another tool that runs arbitrary code can give
-broad account access. Attribution identifies the paired machine, not the
-individual human or agent using it.
+`--once` allows one successful run. `--for 2h` sets how long the grant lasts.
+`--only ARGS` allows one exact argument list. Repeat `--only` for another
+list. Each value is split on spaces, and `--only ""` allows a run with no
+arguments. `clix add adb --allow server --only devices` permits `adb devices`
+and refuses `adb shell`, `adb pull …`, and extra options. Without `--only`,
+the tool accepts any arguments.
 
-The local owner account is trusted. A process with unrestricted access as that
-Unix user can use owner controls and read owner keys. Clix restricts remote
-tool access; it does not isolate an agent already running as the local owner.
-An agent is optional, and approval happens on the machine granting the tool.
+Remove a grant on the machine that added it with `clix remove adb`. You can
+pass the executable path Clix stored, including after that file is gone.
+Another file with the same name is a different program, so it is not that
+grant.
+
+The granted program runs as the user who owns that machine. Clix does not
+limit its arguments, files, or network, and it does not sandbox the process.
+A shell or an interpreter can do anything that user can do. The log names the
+paired machine that asked, not the person or agent at the keyboard.
+
+That owning account is trusted. A process running as that user can use the
+owner commands and read the owner keys. Clix limits what other machines can
+run. An agent already running as that user is outside that limit. An agent
+is optional. You approve a grant on the machine that has the tool.
 
 ## Waiting and requests
 
-Offline jobs and explicit requests are saved on the caller and retried after
-restart. `clix --no-wait laptop adb devices` prints the job ID while the job is
-waiting or running; an already-completed command returns its result.
-`clix request laptop adb` asks for permission without executing. The owner
-handles requests on the target through native notifications, the tray, or the
+If the other machine is offline, the command is saved where you asked and
+tried again after a restart. With the example names,
+`clix --no-wait laptop adb devices` prints a job ID and returns while the job
+is waiting or running. If that job has already finished, the command returns
+its result.
+
+`clix request laptop adb` asks for a grant and does not run the tool. On the
+machine that has the tool, answer from a notification, the tray, or the
 terminal:
 
 ```sh
@@ -145,24 +163,32 @@ clix allow REQUEST_ID
 # Or: clix deny REQUEST_ID
 ```
 
-Copy the ID printed by `clix pending`. Terminal approval defaults to one
-successful run by the requester. Grant flags select permitted paired machines
-and set a duration. Native **Allow once** has the same requester scope;
-native **Allow** grants all paired machines until revoked. A grant change or
-revocation invalidates older pending IDs for that tool. Stale actions fail
-without selecting another request or overwriting the newer owner decision.
+Copy the ID from `clix pending`. `clix allow` by itself permits one successful
+run by the machine that asked. The same flags as `clix add` can name other
+machines or set a duration. To grant every paired machine, use
+`clix add --all` on that machine. Approving a request does not do that, and
+it does not replace a different grant for the same tool.
 
-A restarted runner reports an interrupted job as **uncertain** and retains its
-single-use reservation. Inspect the actual command's effects before replacing
-that grant. Output is captured as bytes, up to 4 MiB per stream; exceeding the
-limit reports capture failure. `clix log` shows locally known jobs; it is not
-an instantaneous view of disconnected machines. Signed history converges among
-paired machines, including local Clix jobs and failures before execution.
-Imported history never grants permission or schedules a job. Authors must be
-explicitly paired to verify their records; the CLI reports incomplete history.
-Older records are labelled as observations by the machine that retained them.
+**Allow once** in a notification or the tray is that same one run, for the
+machine that asked. **Allow** (the tray says **Allow this machine**) keeps
+the grant until you remove it, still only for the machine that asked. Changing
+or removing the grant invalidates older pending IDs for that tool. An old
+action fails. It does not approve some other request, and it does not replace
+a newer decision.
 
-Inspect a job, retrieve its saved bytes, or explicitly create a new attempt:
+If the service restarts in the middle of a run, the job is marked **uncertain**
+and a single-use grant stays used. Look at what the command actually did
+before you grant it again. Each output stream is kept up to 4 MiB. Past that,
+the job reports that capture failed. `clix log` shows the jobs this machine
+knows about. A machine that is disconnected may have jobs this one has not
+seen yet.
+
+Paired machines exchange a signed history. That includes local Clix jobs and
+failures from before a run was accepted. Receiving history does not grant a
+tool or start a run. A record is checked only when this machine is paired
+with the machine that wrote it, and the command line says when history is
+incomplete. Older records are labelled as an observation by the machine that
+kept them, not as a new run.
 
 ```sh
 clix job inspect JOB_ID
@@ -171,38 +197,49 @@ clix job output JOB_ID --stderr
 clix job retry JOB_ID
 ```
 
-A retry is available on the original caller. It gets a new ID linked to the
-old attempt and checks the current grant. It preserves any uncertain once
-reservation. Saved output has a retention budget; outcomes, output digests and
-replay receipts remain after output is pruned.
+Run `clix job retry` on the machine that originally asked. It starts a new
+job linked to the old one and checks the current grant. An uncertain
+single-use reservation stays in place. When saved output passes its budget,
+Clix deletes the bytes. The outcome, a digest of the output, and the receipt
+that refuses a repeat stay.
 
-## Current pin limits
+## Pin limits
 
-Pin supports regular files with UTF-8 paths, at most 16 MiB per file. Symlinks,
-special files, and file/directory replacement are unsupported. Sync runs at
-pairing, before remote execution, and when you run `clix pin sync BODY`.
-It is not continuous background replication. A scan supports up to 4096 entries
-and 64 levels of directories.
+Pin copies regular files with UTF-8 paths, up to 16 MiB each. It does not
+copy a symlink, a special file, or a file that replaced a directory (or the
+other way around). Sync runs when the machines pair and when you run
+`clix pin sync <machine>`. It does not run before a remote command, and it
+is not a live copy. One scan covers at most 4096 entries and 64 directory
+levels.
 
-Displaced files and receipts remain in `~/src/.clix-recovery`. A pending receipt
-or later edit to a retained inode stops further sync until the owner reviews it.
-Use `clix pin recovery list` and `clix pin recovery inspect ID` to review
-retained versions. Recovery decisions require the token from that inspection;
-changed versions require a fresh decision. Nothing retained is automatically
-deleted. New pin work stops at the recovery admission budget of 256 MiB or
-4096 entries, with reserved space for recovery metadata. External writers can
-still grow retained inodes; this is not a filesystem quota. Pin will not replace
-an actively granted executable; remove its grant, sync and review the replacement,
-then add it again. See [operation and recovery](docs/operations.md) for export,
-resolution, disposal and the remaining operating limits.
+Replaced files and receipts stay in `~/src/.clix-recovery`. Sync stops until
+you review a receipt that is still open, or a later write to a file Clix is
+holding:
 
-Clix admits at most four directly launched tools per sidecar and bounds network
-and waiting-client concurrency. Busy jobs remain queued under the same ID.
-State has a 128 MiB encoded limit and a 16 MiB retained-output budget, with
-space reserved for admitted outcomes. Execution and request receipts are kept
-to reject replays; their count limits eventually stop new admissions.
-`clix storage status` shows usage. This is an initial bounded operating policy,
-not a claim of indefinite retention, process sandboxing or proved production scale.
+```sh
+clix pin recovery list
+clix pin recovery inspect ID
+```
+
+`clix pin recovery inspect` prints a token. A recovery decision needs that
+token, and any change means you inspect again. Clix does not delete a kept
+version on its own. New pin work stops at 256 MiB or 4096 recovery entries,
+with room kept for the recovery records. A program outside Clix can still
+grow a held file. This is not a disk quota. Pin will not replace a program
+that currently has a grant. Remove the grant, sync, review the new file, then
+grant it again. [Operation and recovery](docs/operations.md) is the procedure
+for exporting a copy, choosing a version, and deleting one.
+
+## Capacity
+
+Each service starts at most four tools itself, and it caps how many network
+connections and waiting clients it accepts. A command past that cap keeps its
+job ID and waits. Encoded state is limited to 128 MiB, and saved output to
+16 MiB, with room kept for results already accepted. Clix keeps receipts so a
+repeated request is refused. When too many receipts have accumulated, new
+commands stop being accepted. `clix storage status` shows the usage. These
+are the current bounds. They are not a promise of unlimited history, a
+sandbox, or production scale.
 
 For development, see [CONTRIBUTING.md](CONTRIBUTING.md). Report security issues
 using [SECURITY.md](SECURITY.md).
