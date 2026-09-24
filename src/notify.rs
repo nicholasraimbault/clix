@@ -3,6 +3,7 @@ use crate::store::Store;
 use crate::types::Request;
 use notify_rust::{Hint, Notification, Timeout};
 use std::collections::HashSet;
+use std::path::Path;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -48,10 +49,58 @@ pub(crate) async fn run(store: Arc<Mutex<Store>>) {
     }
 }
 fn enabled() -> bool {
-    std::env::var("CLIX_NOTIFY").as_deref() != Ok("0")
-        && ["DISPLAY", "WAYLAND_DISPLAY"]
-            .iter()
-            .any(|k| std::env::var_os(k).is_some_and(|s| !s.is_empty()))
+    std::env::var("CLIX_NOTIFY").as_deref() != Ok("0") && display_present()
+}
+
+/// Whether a graphical session is present for OS notifications and the tray.
+///
+/// The daemon usually starts before the compositor sets DISPLAY/WAYLAND_DISPLAY
+/// in the session environment, so a check that trusts only the process env stays
+/// false for the whole session and requests reach the owner solely through
+/// `clix pending`. Detect a live compositor or X server by its socket, which
+/// appears at login regardless of what the daemon inherited, so a headless
+/// server stays quiet while a desktop delivers.
+pub(crate) fn display_present() -> bool {
+    display_present_in(
+        std::env::var_os("DISPLAY").as_deref(),
+        std::env::var_os("WAYLAND_DISPLAY").as_deref(),
+        std::env::var_os("XDG_RUNTIME_DIR")
+            .as_deref()
+            .map(Path::new),
+        Path::new("/tmp/.X11-unix"),
+    )
+}
+
+pub fn display_present_in(
+    display: Option<&std::ffi::OsStr>,
+    wayland: Option<&std::ffi::OsStr>,
+    runtime_dir: Option<&Path>,
+    x11_dir: &Path,
+) -> bool {
+    if [display, wayland]
+        .iter()
+        .any(|v| v.is_some_and(|s| !s.is_empty()))
+    {
+        return true;
+    }
+    // A Wayland compositor leaves a `wayland-<n>` socket (with a `.lock`
+    // sibling) in XDG_RUNTIME_DIR while it runs.
+    if let Some(dir) = runtime_dir {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name.starts_with("wayland-") && !name.ends_with(".lock") {
+                    return true;
+                }
+            }
+        }
+    }
+    // An X server leaves a socket under /tmp/.X11-unix (X0, X1, …).
+    std::fs::read_dir(x11_dir)
+        .ok()
+        .and_then(|mut e| e.next())
+        .is_some()
 }
 fn show_os(r: &Request, store: Weak<Mutex<Store>>) -> Result<()> {
     let mut n = Notification::new();

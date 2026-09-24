@@ -92,6 +92,7 @@ async fn serve_inner(
     set_owner_mode(&sock)?;
     let recovery = {
         let mut s = store.lock().unwrap_or_else(|e| e.into_inner());
+        repair_body_name(&mut s)?;
         crate::pair::validate_store(&s)?;
         let result = s.recover_jobs();
         if let Err(error) = &result {
@@ -144,6 +145,26 @@ async fn local_loop(
             Err(e) => return Err(e.into()),
         }
     }
+}
+
+/// A body name can only become invalid before any pairing (pairing validates
+/// names), so an invalid saved name means an early hostname default like an
+/// FQDN. Repair it to a valid name at startup instead of exiting and letting
+/// systemd crash-loop the unit. A paired store with a bad name is left to
+/// validate_store to reject, since renaming it would break its peers.
+fn repair_body_name(s: &mut Store) -> Result<()> {
+    if crate::pair::validate_name(&s.body_name).is_ok() || !s.peers.is_empty() {
+        return Ok(());
+    }
+    let repaired = crate::pair::sanitize_name(&s.body_name);
+    eprintln!(
+        "Clix body name {:?} is not valid; using {:?}. Set a name with clix pair --name.",
+        s.body_name, repaired
+    );
+    s.update(|s| {
+        s.body_name = repaired;
+        Ok(())
+    })
 }
 
 fn prepare_socket_path(sock: &Path) -> Result<()> {

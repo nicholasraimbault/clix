@@ -165,6 +165,29 @@ Clix or repair the filesystem before restarting. Existing files larger than the
 supported state limit are preserved and refused at load; they need a separate
 offline migration, not truncation.
 
+## Install and headless operation
+
+`clix install` writes a `systemd --user` unit and enables it. Notifications and
+the tray are delivered over the desktop session and are detected at runtime by a
+live compositor or X server socket, so the daemon may start before the graphical
+session and still show requests once you log in; with no display, requests
+appear in `clix pending`.
+
+A `systemd --user` service only survives logout, and only starts at boot, when
+the user is lingering. On a headless server enable it once:
+
+```sh
+loginctl enable-linger "$USER"
+```
+
+`clix install` prints this reminder when lingering is off.
+
+The body name defaults from `/etc/hostname`. An FQDN or other value that is not
+a valid body name is reduced to its first label (for example
+`devbox.example.com` becomes `devbox`); set an explicit name with
+`clix pair --name`. Before pairing, the daemon repairs an invalid saved name at
+startup rather than refusing to run.
+
 ## Upgrades
 
 Stop the service and back up its state directory and recovery directory before

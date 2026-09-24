@@ -85,3 +85,27 @@ async fn wrong_phrase_does_not_match() {
     assert!(sa["peers"].as_array().unwrap().is_empty());
     assert!(sb["peers"].as_array().unwrap().is_empty());
 }
+
+#[test]
+fn hostname_default_is_sanitized_into_a_valid_body_name() {
+    // An FQDN in /etc/hostname must not yield an invalid body name that
+    // crashes the daemon at startup. Only the first label is kept.
+    assert_eq!(clix::sanitize_body_name("devbox.example.com"), "devbox");
+    // Leading non-alphanumerics are stripped; disallowed bytes dropped.
+    assert_eq!(clix::sanitize_body_name("-weird name!"), "weirdname");
+    // An all-invalid or empty source falls back to the generic default.
+    assert_eq!(clix::sanitize_body_name(""), "clix");
+    assert_eq!(clix::sanitize_body_name("...."), "clix");
+    // An already-valid name is preserved unchanged.
+    assert_eq!(clix::sanitize_body_name("laptop-1"), "laptop-1");
+    // Whatever it returns must satisfy validate_name (no panic = valid).
+    for raw in ["devbox.example.com", "", "....", "-weird name!", "laptop-1"] {
+        let name = clix::sanitize_body_name(raw);
+        assert!(
+            name.bytes()
+                .next()
+                .is_some_and(|b| b.is_ascii_alphanumeric()),
+            "sanitized {raw:?} -> {name:?} is not a valid body name"
+        );
+    }
+}

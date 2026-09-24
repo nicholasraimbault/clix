@@ -48,3 +48,44 @@ async fn denied_exec_notifies_once_allow_deny() {
         "server wants true on this machine"
     );
 }
+
+#[test]
+fn display_detection_finds_a_compositor_socket_when_env_is_empty() {
+    use std::path::Path;
+    let rt = tempfile::tempdir().unwrap();
+    let x11 = tempfile::tempdir().unwrap();
+    // Nothing set anywhere: headless, no display.
+    assert!(!clix::display_present_in(
+        None,
+        None,
+        Some(rt.path()),
+        x11.path()
+    ));
+    // The daemon started before login so its env is empty, but a Wayland
+    // compositor is now running and left its socket in XDG_RUNTIME_DIR.
+    std::fs::write(rt.path().join("wayland-0"), b"").unwrap();
+    std::fs::write(rt.path().join("wayland-0.lock"), b"").unwrap();
+    assert!(clix::display_present_in(
+        None,
+        None,
+        Some(rt.path()),
+        x11.path()
+    ));
+    // A live X server socket is detected the same way.
+    let rt2 = tempfile::tempdir().unwrap();
+    std::fs::write(x11.path().join("X0"), b"").unwrap();
+    assert!(clix::display_present_in(
+        None,
+        None,
+        Some(rt2.path()),
+        x11.path()
+    ));
+    // An explicit env var short-circuits (the ordinary desktop case).
+    let empty = Path::new("/nonexistent-clix-test-dir");
+    assert!(clix::display_present_in(
+        Some(std::ffi::OsStr::new(":0")),
+        None,
+        Some(empty),
+        empty
+    ));
+}

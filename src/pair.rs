@@ -68,11 +68,33 @@ pub fn owner_pk(sk: &[u8]) -> Result<Vec<u8>> {
 }
 
 pub(crate) fn hostname() -> String {
-    fs::read_to_string("/etc/hostname")
+    let raw = fs::read_to_string("/etc/hostname")
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "clix".into())
+        .unwrap_or_else(|| "clix".into());
+    sanitize_name(&raw)
+}
+
+/// Turn an arbitrary hostname into a body name that satisfies `validate_name`.
+/// Keeps the first DNS label, drops disallowed bytes, strips leading
+/// non-alphanumerics, truncates to 63 bytes, and falls back to `clix` when
+/// nothing usable remains. An FQDN like `devbox.example.com` becomes `devbox`,
+/// so a first-boot hostname can never crash the daemon at startup.
+pub fn sanitize_name(raw: &str) -> String {
+    let label = raw.split('.').next().unwrap_or(raw);
+    let cleaned: String = label
+        .bytes()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == b'-' || *c == b'_')
+        .map(char::from)
+        .collect();
+    let trimmed = cleaned.trim_start_matches(|c: char| !c.is_ascii_alphanumeric());
+    let capped: String = trimmed.chars().take(63).collect();
+    if capped.is_empty() {
+        "clix".into()
+    } else {
+        capped
+    }
 }
 
 pub(crate) fn validate_name(name: &str) -> Result<()> {

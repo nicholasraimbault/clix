@@ -15,6 +15,7 @@ pub fn install() -> Result<()> {
     if dir_overridden() {
         return Ok(());
     }
+    advise_linger();
     let sock = crate::paths::socket_path()?;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     while std::time::Instant::now() < deadline {
@@ -95,6 +96,41 @@ fn enable_now() -> Result<()> {
     }
     run_systemctl(&["daemon-reload"])?;
     run_systemctl(&["enable", "--now", "clix.service"])
+}
+
+/// A systemd --user service only survives logout, and only starts at boot,
+/// when the user is lingering. On a headless server without lingering the daemon
+/// stops when the SSH session ends, so advise enabling it when it is off.
+fn advise_linger() {
+    if linger_enabled() == Some(true) {
+        return;
+    }
+    let user = env::var("USER").unwrap_or_default();
+    let target = if user.is_empty() {
+        String::new()
+    } else {
+        format!(" {user}")
+    };
+    eprintln!(
+        "Note: enable lingering so Clix keeps running without an active login \
+         session (needed on a headless server):\n    loginctl enable-linger{target}"
+    );
+}
+
+fn linger_enabled() -> Option<bool> {
+    let user = env::var("USER").ok()?;
+    let out = Command::new("loginctl")
+        .args(["show-user", &user, "--property=Linger", "--value"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    match String::from_utf8_lossy(&out.stdout).trim() {
+        "yes" => Some(true),
+        "no" => Some(false),
+        _ => None,
+    }
 }
 
 fn run_systemctl(args: &[&str]) -> Result<()> {

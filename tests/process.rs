@@ -1170,3 +1170,18 @@ fn hands_cli_shows_grant_scope_not_just_the_tool_name() {
     assert!(text.contains("once"), "single-use hidden: {text}");
     let _ = server;
 }
+
+#[test]
+fn daemon_repairs_an_invalid_saved_body_name_instead_of_crash_looping() {
+    // A pre-existing state saved with an FQDN body name (e.g. from an older
+    // /etc/hostname default) must not make the daemon exit at startup.
+    let mut daemon = Daemon::spawn();
+    let state = daemon.home.path().join("state/state.json");
+    daemon.crash();
+    let mut value: Value = serde_json::from_slice(&fs::read(&state).unwrap()).unwrap();
+    value["body_name"] = json!("devbox.example.com");
+    fs::write(&state, serde_json::to_vec(&value).unwrap()).unwrap();
+    daemon.start();
+    let status = daemon.rpc(json!({"op":"status"}));
+    assert_eq!(status["body"], "devbox", "{status}");
+}

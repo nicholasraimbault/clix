@@ -31,8 +31,8 @@ pub use exec::run_granted;
 pub use grant::{add, check, check_at, describe as describe_grant, hands, remove, resolve_tool};
 pub use local::client_send;
 pub use mesh::{call as mesh_call, MeshHandle, MeshListener};
-pub use notify::{set_notify_hook, NotifyHook};
-pub use pair::{pair_join, pair_listen, phrase};
+pub use notify::{display_present_in, set_notify_hook, NotifyHook};
+pub use pair::{pair_join, pair_listen, phrase, sanitize_name as sanitize_body_name};
 pub use paths::{socket_path, state_dir, state_file};
 pub use pin::{
     inspect_peer_conflicts, owner_pin_sync, recovery_discard, recovery_export, recovery_inspect,

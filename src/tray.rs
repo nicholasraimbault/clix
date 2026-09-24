@@ -46,8 +46,7 @@ fn tray_enabled() -> bool {
 }
 
 fn has_display() -> bool {
-    env::var_os("DISPLAY").is_some_and(|v| !v.is_empty())
-        || env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty())
+    crate::notify::display_present()
 }
 
 async fn run(store: Arc<Mutex<Store>>) {
