@@ -862,9 +862,8 @@ pub(crate) fn emit_rpc(cmd: &Cmd, v: &Value) -> Result<()> {
         Cmd::Hands => {
             if let Some(arr) = v.get("hands").and_then(Value::as_array) {
                 for h in arr {
-                    if let Some(tool) = h.get("tool").and_then(Value::as_str) {
-                        println!("{tool}");
-                    }
+                    let grant: crate::types::Grant = serde_json::from_value(h.clone())?;
+                    println!("{}", grant::describe(&grant));
                 }
             }
             Ok(())

@@ -132,6 +132,40 @@ pub fn hands(store: &Store) -> &[Grant] {
     &store.grants
 }
 
+/// One human-readable line for a grant, showing what `clix hands` used to hide:
+/// which machines it applies to, whether it is single-use, its expiry and any
+/// schedule.
+pub fn describe(grant: &Grant) -> String {
+    let scope = match &grant.allow_from {
+        None => "all machines".to_string(),
+        Some(bodies) if bodies.is_empty() => "no machines".to_string(),
+        Some(bodies) => bodies
+            .iter()
+            .map(|b| b.0.as_str())
+            .collect::<Vec<_>>()
+            .join(", "),
+    };
+    let mut line = format!("{}  → {scope}", grant.tool);
+    if grant.once {
+        line.push_str("  once");
+    }
+    if let Some(until) = grant.until {
+        let secs = until
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let when = DateTime::<Local>::from(until).format("%Y-%m-%d %H:%M");
+        line.push_str(&format!("  until {when} ({secs})"));
+    }
+    if grant.schedule.is_some() {
+        line.push_str("  schedule");
+    }
+    if grant.reservation.is_some() {
+        line.push_str("  [reserved for a running job]");
+    }
+    line
+}
+
 pub fn check(store: &Store, tool: &str, from: &BodyId) -> Result<Grant> {
     check_at(store, tool, from, Local::now())
 }

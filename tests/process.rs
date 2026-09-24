@@ -1154,3 +1154,19 @@ fn enospc_restart_keeps_owner_inspection_available_and_execution_disabled() {
         },
     );
 }
+
+#[test]
+fn hands_cli_shows_grant_scope_not_just_the_tool_name() {
+    let (laptop, server) = paired();
+    let tool = laptop.fixture("scoped-tool", "true");
+    // Grant to the server only, single-use.
+    let response = laptop.rpc(json!({"op":"add","tool":&tool,"allow":["server"],"once":true}));
+    assert_eq!(response["ok"], true, "{response}");
+    let out = laptop.cli(&["hands"]);
+    assert!(out.status.success(), "{out:?}");
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains(tool_name(&tool)), "hands output: {text}");
+    assert!(text.contains("server"), "scope hidden: {text}");
+    assert!(text.contains("once"), "single-use hidden: {text}");
+    let _ = server;
+}

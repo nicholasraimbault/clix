@@ -338,3 +338,40 @@ fn unknown_allow_body_is_rejected_without_changing_grants() {
     assert!(add(&mut s, "true", &["unpaired".into()], false, None, None).is_err());
     assert!(s.grants.is_empty());
 }
+
+#[test]
+fn describe_shows_scope_time_and_schedule() {
+    // All-bodies grant: the reader must see it applies to every machine.
+    let mut s = empty_store();
+    add(&mut s, "true", &[], false, None, None).unwrap();
+    let all = clix::describe_grant(&s.grants[0]);
+    assert!(all.contains("true"), "{all}");
+    assert!(all.contains("all machines"), "{all}");
+
+    // Scoped, single-use grant names the machine and the once reservation.
+    let mut s = empty_store();
+    add(&mut s, "true", &["server".into()], true, None, None).unwrap();
+    let scoped = clix::describe_grant(&s.grants[0]);
+    assert!(scoped.contains("server"), "{scoped}");
+    assert!(scoped.contains("once"), "{scoped}");
+    assert!(!scoped.contains("all machines"), "{scoped}");
+
+    // A schedule is surfaced rather than hidden.
+    let mut s = empty_store();
+    add(
+        &mut s,
+        "true",
+        &["server".into()],
+        false,
+        None,
+        Some(Schedule {
+            days: vec![Weekday::Mon],
+            dates: vec![],
+            from: None,
+            to: None,
+        }),
+    )
+    .unwrap();
+    let sched = clix::describe_grant(&s.grants[0]);
+    assert!(sched.contains("schedule"), "{sched}");
+}

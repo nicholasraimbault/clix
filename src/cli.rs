@@ -408,7 +408,6 @@ fn strip_no_wait(mut parts: Vec<String>, mut no_wait: bool) -> (Vec<String>, boo
     (parts, no_wait)
 }
 
-/// The same command namespace is enforced when choosing a body name.
 fn validate_days(days: Vec<String>) -> Result<Vec<String>> {
     const NAMES: &[&str] = &["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
     let mut out = Vec::with_capacity(days.len());
